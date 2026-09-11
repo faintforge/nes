@@ -16,9 +16,9 @@ static const char* OP_PRETTY_STRING[OP__COUNT] = {
     "CLI", "SEI", "CLD", "SED", "CLV", "NOP",
 };
 
-static const char *ADDR_MODE_PRETTY_STRING[ADDR_MODE__COUNT] = {
-    "A",     "#imm",  "zpg",    "zpg,X",  "abs",
-    "abs,X", "abs,Y", "ind", "ind,X", "ind,Y", "rel",
+static const char* ADDR_MODE_PRETTY_STRING[ADDR_MODE__COUNT] = {
+    "A",     "#imm", "zpg",   "zpg,X", "zpg,Y", "abs", "abs,X",
+    "abs,Y", "ind",  "ind,X", "ind,Y", "rel",   "",
 };
 
 static const char* OP_ENUM_STRING[OP__COUNT] = {
@@ -33,10 +33,11 @@ static const char* OP_ENUM_STRING[OP__COUNT] = {
 };
 
 static const char* ADDR_MODE_ENUM_STRING[ADDR_MODE__COUNT] = {
-    "ADDR_MODE_ACCUMULATOR", "ADDR_MODE_IMMEDIATE", "ADDR_MODE_ZERO_PAGE",
-    "ADDR_MODE_ZERO_PAGE_X", "ADDR_MODE_ABSOLUTE",  "ADDR_MODE_ABSOLUTE_X",
-    "ADDR_MODE_ABSOLUTE_Y",  "ADDR_MODE_INDIRECT",  "ADDR_MODE_INDIRECT_X",
-    "ADDR_MODE_INDIRECT_Y",  "ADDR_MODE_RELATIVE",
+    "ADDR_MODE_ACCUMULATOR", "ADDR_MODE_IMMEDIATE",   "ADDR_MODE_ZERO_PAGE",
+    "ADDR_MODE_ZERO_PAGE_X", "ADDR_MODE_ZERO_PAGE_Y", "ADDR_MODE_ABSOLUTE",
+    "ADDR_MODE_ABSOLUTE_X",  "ADDR_MODE_ABSOLUTE_Y",  "ADDR_MODE_INDIRECT",
+    "ADDR_MODE_INDIRECT_X",  "ADDR_MODE_INDIRECT_Y",  "ADDR_MODE_RELATIVE",
+    "ADDR_MODE_IMPLIED",
 };
 
 static Op decode_cc0(u8 aaa, u8 bbb) {
@@ -58,13 +59,13 @@ static Op decode_cc0(u8 aaa, u8 bbb) {
     static const Op op[4][16] = {
         // Column 0
         {
-            {OP_BRK, ADDR_MODE_ACCUMULATOR},
+            {OP_BRK, ADDR_MODE_IMPLIED},
             {OP_BPL, ADDR_MODE_RELATIVE},
             {OP_JSR, ADDR_MODE_ABSOLUTE},
             {OP_BMI, ADDR_MODE_RELATIVE},
-            {OP_RTI, ADDR_MODE_ACCUMULATOR},
+            {OP_RTI, ADDR_MODE_IMPLIED},
             {OP_BVC, ADDR_MODE_RELATIVE},
-            {OP_RTS, ADDR_MODE_ACCUMULATOR},
+            {OP_RTS, ADDR_MODE_IMPLIED},
             {OP_BVS, ADDR_MODE_RELATIVE},
             OP_UNDEFINED,
             {OP_BCC, ADDR_MODE_RELATIVE},
@@ -96,22 +97,22 @@ static Op decode_cc0(u8 aaa, u8 bbb) {
         },
         // Column 8
         {
-            {OP_PHP, ADDR_MODE_ACCUMULATOR},
-            {OP_CLC, ADDR_MODE_ACCUMULATOR},
-            {OP_PLP, ADDR_MODE_ACCUMULATOR},
-            {OP_SEC, ADDR_MODE_ACCUMULATOR},
-            {OP_PHA, ADDR_MODE_ACCUMULATOR},
-            {OP_CLI, ADDR_MODE_ACCUMULATOR},
-            {OP_PLA, ADDR_MODE_ACCUMULATOR},
-            {OP_SEI, ADDR_MODE_ACCUMULATOR},
-            {OP_DEY, ADDR_MODE_ACCUMULATOR},
-            {OP_TYA, ADDR_MODE_ACCUMULATOR},
-            {OP_TAY, ADDR_MODE_ACCUMULATOR},
-            {OP_CLV, ADDR_MODE_ACCUMULATOR},
-            {OP_INY, ADDR_MODE_ACCUMULATOR},
-            {OP_CLD, ADDR_MODE_ACCUMULATOR},
-            {OP_INX, ADDR_MODE_ACCUMULATOR},
-            {OP_SED, ADDR_MODE_ACCUMULATOR},
+            {OP_PHP, ADDR_MODE_IMPLIED},
+            {OP_CLC, ADDR_MODE_IMPLIED},
+            {OP_PLP, ADDR_MODE_IMPLIED},
+            {OP_SEC, ADDR_MODE_IMPLIED},
+            {OP_PHA, ADDR_MODE_IMPLIED},
+            {OP_CLI, ADDR_MODE_IMPLIED},
+            {OP_PLA, ADDR_MODE_IMPLIED},
+            {OP_SEI, ADDR_MODE_IMPLIED},
+            {OP_DEY, ADDR_MODE_IMPLIED},
+            {OP_TYA, ADDR_MODE_IMPLIED},
+            {OP_TAY, ADDR_MODE_IMPLIED},
+            {OP_CLV, ADDR_MODE_IMPLIED},
+            {OP_INY, ADDR_MODE_IMPLIED},
+            {OP_CLD, ADDR_MODE_IMPLIED},
+            {OP_INX, ADDR_MODE_IMPLIED},
+            {OP_SED, ADDR_MODE_IMPLIED},
         },
         // Column C
         {
@@ -121,7 +122,7 @@ static Op decode_cc0(u8 aaa, u8 bbb) {
             OP_UNDEFINED,
             {OP_JMP, ADDR_MODE_ABSOLUTE},
             OP_UNDEFINED,
-            {OP_JMP, ADDR_MODE_INDIRECT_X},
+            {OP_JMP, ADDR_MODE_INDIRECT},
             OP_UNDEFINED,
             {OP_STY, ADDR_MODE_ABSOLUTE},
             OP_UNDEFINED,
@@ -151,6 +152,16 @@ static Op decode_cc1(u8 aaa, u8 bbb) {
         ADDR_MODE_INDIRECT_Y, ADDR_MODE_ZERO_PAGE_X,
         ADDR_MODE_ABSOLUTE_Y, ADDR_MODE_ABSOLUTE_X,
     };
+
+    // High nibble = AAAB
+    const u8 matrix_row = (aaa << 1) | (bbb >> 2);
+    // Low nibble = BBCC
+    const u8 CC = 1;
+    const u8 matrix_column = ((bbb & 3) << 2) | CC;
+
+    if (matrix_row == 8 && matrix_column == 9) {
+        return OP_UNDEFINED;
+    }
 
     return (Op) {
         .type = ops[aaa],
@@ -183,94 +194,83 @@ static Op decode_cc2(u8 aaa, u8 bbb) {
         OP_STX, OP_LDX, OP_DEC, OP_INC,
     };
 
-    // Correct for all except cells A2
-    static const AddrMode mode[8] = {
+    // Correct for all except cells A2 and between row [9-A]
+    static const AddrMode mode0[8] = {
         ADDR_MODE__UNDEFINED, ADDR_MODE_ZERO_PAGE,
         ADDR_MODE_ACCUMULATOR, ADDR_MODE_ABSOLUTE,
         ADDR_MODE__UNDEFINED, ADDR_MODE_ZERO_PAGE_X,
         ADDR_MODE__UNDEFINED, ADDR_MODE_ABSOLUTE_X,
     };
 
+    // Only correct for row [9-A]
+    static const AddrMode mode1[8] = {
+        ADDR_MODE__UNDEFINED, ADDR_MODE_ZERO_PAGE,
+        ADDR_MODE_ACCUMULATOR, ADDR_MODE_ABSOLUTE,
+        ADDR_MODE__UNDEFINED, ADDR_MODE_ZERO_PAGE_Y,
+        ADDR_MODE__UNDEFINED, ADDR_MODE_ABSOLUTE_X,
+    };
+
+    if (matrix_column == 6 && matrix_row >= 9 && matrix_row <= 0xB) {
+        return (Op) {
+            .type = col6ae_op[aaa],
+            .addr_mode = mode1[bbb],
+        };
+    }
+
     if (matrix_column == 6 ||
         (matrix_row < 8 && (matrix_column == 0xA || matrix_column == 0xE))) {
         return (Op) {
             .type = col6ae_op[aaa],
-            .addr_mode = mode[bbb],
+            .addr_mode = mode0[bbb],
         };
     }
 
     // row >= 8 <=> aaa >= 4
     if (matrix_column == 0xA) {
-        static const OpType row8f_op[16] = {
+        static const Op op[16] = {
             // Even though there are operations in the first 8 rows we don't
             // include those because we're not supposed to reach this stage
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP_TXA,
-            OP_TXS,
-            OP_TAX,
-            OP_TSX,
-            OP_DEX,
-            OP__UNDEFINED,
-            OP_NOP,
-            OP__UNDEFINED,
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            {OP_TXA, ADDR_MODE_IMPLIED},
+            {OP_TXS, ADDR_MODE_IMPLIED},
+            {OP_TAX, ADDR_MODE_IMPLIED},
+            {OP_TSX, ADDR_MODE_IMPLIED},
+            {OP_DEX, ADDR_MODE_IMPLIED},
+            OP_UNDEFINED,
+            {OP_NOP, ADDR_MODE_IMPLIED},
+            OP_UNDEFINED,
         };
 
-        return (Op) {
-            .type = row8f_op[matrix_row],
-            .addr_mode = mode[bbb],
-        };
+        return op[matrix_row];
     }
 
     if (matrix_column == 0xE) {
-        static const OpType row8f_op[16] = {
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP__UNDEFINED,
-            OP_STX,
-            OP__UNDEFINED,
-            OP_LDX,
-            OP_LDX,
-            OP_DEC,
-            OP_DEC,
-            OP_INC,
-            OP_INC,
+        static const Op op[16] = {
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            OP_UNDEFINED,
+            {OP_STX, ADDR_MODE_ABSOLUTE},
+            OP_UNDEFINED,
+            {OP_LDX, ADDR_MODE_ABSOLUTE},
+            {OP_LDX, ADDR_MODE_ABSOLUTE_Y},
+            {OP_DEC, ADDR_MODE_ABSOLUTE},
+            {OP_DEC, ADDR_MODE_ABSOLUTE_X},
+            {OP_INC, ADDR_MODE_ABSOLUTE},
+            {OP_INC, ADDR_MODE_ABSOLUTE_X},
         };
-
-        static const AddrMode row8f_mode[16] = {
-            ADDR_MODE__UNDEFINED,
-            ADDR_MODE__UNDEFINED,
-            ADDR_MODE__UNDEFINED,
-            ADDR_MODE__UNDEFINED,
-            ADDR_MODE__UNDEFINED,
-            ADDR_MODE__UNDEFINED,
-            ADDR_MODE__UNDEFINED,
-            ADDR_MODE__UNDEFINED,
-            ADDR_MODE_ABSOLUTE,
-            ADDR_MODE__UNDEFINED,
-            ADDR_MODE_ABSOLUTE,
-            ADDR_MODE_ABSOLUTE_Y,
-            ADDR_MODE_ABSOLUTE,
-            ADDR_MODE_ABSOLUTE_X,
-            ADDR_MODE_ABSOLUTE,
-            ADDR_MODE_ABSOLUTE_X,
-        };
-
-        return (Op) {
-            .type = row8f_op[matrix_row],
-            .addr_mode = row8f_mode[matrix_row],
-        };
+        return op[matrix_row];
     }
 
     return OP_UNDEFINED;
@@ -310,17 +310,22 @@ Op decode_opcode(u8 opcode) {
 }
 
 void print_table_content(void) {
-    for (u8 i = 0; i < 255; i++) {
-        Op op = decode_opcode(i);
-        if (op.type == OP__UNDEFINED) {
-            continue;
+    for (u16 column = 0; column < 16; column++) {
+        printf("    // Column %X\n", column);
+        for (u16 row = 0; row < 16; row++) {
+            u16 opcode = (row << 4) | column;
+            Op op = decode_opcode(opcode);
+            if (op.type == OP__UNDEFINED) {
+                printf("    [0x%02X] = {OP__UNDEFINED, ADDR_MODE__UNDEFINED},\n", opcode);
+            } else {
+                char buffer[80] = {0};
+                snprintf(buffer, 80, "    [0x%02X] = {%s,%-8s%s},", opcode,
+                        OP_ENUM_STRING[op.type], "",
+                        ADDR_MODE_ENUM_STRING[op.addr_mode]);
+                printf("%-56s// %s %s\n", buffer, OP_PRETTY_STRING[op.type],
+                        ADDR_MODE_PRETTY_STRING[op.addr_mode]);
+            }
         }
-        printf("    [0x%02X] = {%s, %s}\t// %s %s,\n",
-                i,
-                OP_ENUM_STRING[op.type],
-                ADDR_MODE_ENUM_STRING[op.addr_mode],
-                OP_PRETTY_STRING[op.type],
-                ADDR_MODE_PRETTY_STRING[op.addr_mode]);
     }
 }
 
@@ -330,6 +335,8 @@ i32 main(i32 argc, char** argv) {
     printf("// =============================================================================\n");
     printf("// THIS FILE WAS GENERATED - DON'T EDIT IT\n"); 
     printf("// GENERATED BY: %s\n", argv[0]);
+    printf("//\n");
+    printf("// [Reference](https://en.wikipedia.org/wiki/MOS_Technology_6502#Instruction_table)\n");
     printf("// =============================================================================\n");
     printf("\n");
     printf("#ifndef OPCODE_TABLE_H\n");
@@ -337,7 +344,7 @@ i32 main(i32 argc, char** argv) {
     printf("\n");
     printf("#include \"nes/cpu.h\"\n");
     printf("\n");
-    printf("const Op OPCODE_TABLE[0xFF] = {\n");
+    printf("const Op OPCODE_TABLE[256] = {\n");
     print_table_content();
     printf("};\n");
     printf("\n");
