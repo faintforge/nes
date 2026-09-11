@@ -1,4 +1,4 @@
-#include "nes/cpu.h"
+#include "nes/op.h"
 
 #include <stdio.h>
 
@@ -342,7 +342,7 @@ i32 main(i32 argc, char** argv) {
     printf("#ifndef OPCODE_TABLE_H\n");
     printf("#define OPCODE_TABLE_H\n");
     printf("\n");
-    printf("#include \"nes/cpu.h\"\n");
+    printf("#include \"nes/op.h\"\n");
     printf("\n");
     printf("const Op OPCODE_TABLE[256] = {\n");
     print_table_content();

@@ -8,7 +8,7 @@
 #ifndef OPCODE_TABLE_H
 #define OPCODE_TABLE_H
 
-#include "nes/cpu.h"
+#include "nes/op.h"
 
 const Op OPCODE_TABLE[256] = {
     // Column 0
