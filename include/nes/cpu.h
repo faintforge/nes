@@ -16,9 +16,16 @@ enum {
 
 extern void print_cpu_status(u8 status);
 
+typedef struct MemoryBus MemoryBus;
+struct MemoryBus {
+    u8 (*read)(MemoryBus* bus, u16 address);
+    void (*write)(MemoryBus* bus, u16 address, u8 value);
+    void* ctx;
+};
+
 typedef struct CPU CPU;
 struct CPU {
-    u8* memory;
+    MemoryBus bus;
 
     u8 a;
     u8 x;
@@ -30,8 +37,7 @@ struct CPU {
     u64 cycle;
 };
 
-extern CPU cpu_create(void);
-extern void cpu_destroy(CPU* cpu);
+extern CPU cpu_init(MemoryBus bus);
 extern void cpu_reset(CPU* cpu);
 
 extern u8 cpu_step(CPU* cpu);

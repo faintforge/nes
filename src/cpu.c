@@ -36,19 +36,17 @@ static inline void cpu_set_zero_negative(CPU* cpu, u8 value) {
 // =============================================================================
 
 static u8 cpu_read(CPU* cpu, u16 address) {
-    u8 data = cpu->memory[address];
     cpu->cycle++;
-    return data;
+    return cpu->bus.read(&cpu->bus, address);
 }
 
 static void cpu_write(CPU* cpu, u16 address, u8 value) {
-    cpu->memory[address] = value;
     cpu->cycle++;
+    cpu->bus.write(&cpu->bus, address, value);
 }
 
 static u8 cpu_fetch(CPU* cpu) {
-    u8 data = cpu->memory[cpu->pc];
-    cpu->cycle++;
+    u8 data = cpu_read(cpu, cpu->pc);
     cpu->pc++;
     return data;
 }
@@ -75,11 +73,11 @@ void print_cpu_status(u8 status) {
     printf("    N = %d\n", (status >> 7) & 1);
 }
 
-CPU cpu_create(void) {
+CPU cpu_init(MemoryBus bus) {
     // [Power up state](https://www.nesdev.org/wiki/CPU_power_up_state)
     // [Memory map](https://www.nesdev.org/wiki/CPU_memory_map)
     CPU cpu = {
-        .memory = malloc(MEMORY_SIZE),
+        .bus = bus,
         .a = 0,
         .x = 0,
         .y = 0,
@@ -87,19 +85,8 @@ CPU cpu_create(void) {
         .s = 0,
         .p = CPU_STATUS_INTERRUPT_DISABLE,
     };
-    memset(cpu.memory, 0, MEMORY_SIZE);
-    // TODO: I'm unsure if we're actually suppoed to set the stack pointer here
-    // or let the program handle stack initialization.
-    // nesdev.org says stack pointer will be 0xFD but I'm not sure if this is a
-    // NES specific thing (maybe the NES 6502 has a program loaded that always
-    // does STX 0xFD, TXS)
 
     return cpu;
-}
-
-void cpu_destroy(CPU* cpu) {
-    free(cpu->memory);
-    *cpu = (CPU) {0};
 }
 
 void cpu_reset(CPU* cpu) {
