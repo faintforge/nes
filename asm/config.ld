@@ -1,0 +1,8 @@
+MEMORY {
+    ROM: start = $8000, size = $8000, type = ro, fill = yes;
+}
+
+SEGMENTS {
+    CODE:    load = ROM, type = ro;
+    VECTORS: load = ROM, type = ro, start = $FFFA;
+}

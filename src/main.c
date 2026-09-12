@@ -13,49 +13,13 @@ void pretty_print_opcode(u8 opcode) {
 i32 main(void) {
     CPU cpu = cpu_create();
 
-    u8 program[] = {
-        0x18, // CLC
-        0xA9, // LDA #imm
-        0,
-        0x85, // STA zpg
-        1,
-        0xDE, // DEC abs,X
-        0x00,
-        0xF1,
-        0x4C, // JMP abs
-        0xC,
-        0x01,
-
-        0xFF,
-
-        0x20, // JSR abs
-        0x10,
-        0x01,
-
-        0x00,
-        0x00,
-        0xFF,
-
-        0xA9, // LDA #imm
-        42,
-        0x60, // RTS
-    };
-
-    size_t program_length = sizeof(program)/sizeof(program[0]);
-    u16 starting_addr = 0x0100;
-    for (size_t i = 0; i < program_length; i++) {
-        cpu.memory[starting_addr + i] = program[i];
-    }
-    cpu.memory[0x00] = 0x40; // LDX #imm
-    // cpu.memory[0x00] = 0xA2; // LDX #imm
-    cpu.memory[0x01] = 0;
-    cpu.memory[0x02] = 0x8E; // STX abs
-    cpu.memory[0x03] = 0x00;
-    cpu.memory[0x04] = 0xFF;
+    FILE* fp = fopen("rom/test.bin", "rb");
+    fseek(fp, 0, SEEK_END);
+    size_t len = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+    fread(cpu.memory+0x8000, len, 1, fp);
+    fclose(fp);
     cpu.memory[0xFF00] = 255;
-
-    cpu.memory[0xFFFC] = starting_addr & 0xFF;
-    cpu.memory[0xFFFD] = starting_addr >> 8;
 
     cpu_reset(&cpu);
     b8 running = true;

@@ -191,8 +191,6 @@ static u16 get_address(CPU* cpu, AddrMode mode, b8 always_oops) {
             return ((high << 8) | low) + cpu->y;
         }
         case ADDR_MODE_RELATIVE: {
-            // TODO: Figure out how negative numbers work in this and how that
-            // affects relative offsets.
             i8 offset = cpu_fetch(cpu);
             return cpu->pc + offset;
         }
