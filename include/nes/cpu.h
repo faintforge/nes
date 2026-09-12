@@ -34,6 +34,9 @@ extern CPU cpu_create(void);
 extern void cpu_destroy(CPU* cpu);
 extern void cpu_reset(CPU* cpu);
 
-extern void cpu_step(CPU* cpu);
+extern u8 cpu_step(CPU* cpu);
+
+extern void cpu_irq(CPU* cpu);
+extern void cpu_nmi(CPU* cpu);
 
 #endif // CPU_H

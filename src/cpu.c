@@ -7,45 +7,33 @@
 #include <assert.h>
 
 #define MEMORY_SIZE 0x10000
+// Stack = page 1
+#define STACK_START 0x0100
 
-void print_cpu_status(u8 status) {
-    printf("CPU Status:\n");
-    printf("    C = %d\n", (status >> 0) & 1);
-    printf("    Z = %d\n", (status >> 1) & 1);
-    printf("    I = %d\n", (status >> 2) & 1);
-    printf("    D = %d\n", (status >> 3) & 1);
-    printf("    B = %d\n", (status >> 4) & 1);
-    printf("    O = %d\n", (status >> 6) & 1);
-    printf("    N = %d\n", (status >> 7) & 1);
+// =============================================================================
+// Status flag helpers
+// =============================================================================
+
+static inline void cpu_set_status_flag(CPU* cpu, u8 flag, b8 value) {
+    if (value) {
+        cpu->p |= flag;
+    } else {
+        cpu->p &= ~flag;
+    }
 }
 
-CPU cpu_create(void) {
-    // [Power up state](https://www.nesdev.org/wiki/CPU_power_up_state)
-    // [Memory map](https://www.nesdev.org/wiki/CPU_memory_map)
-    CPU cpu = {
-        .memory = malloc(MEMORY_SIZE),
-        .a = 0,
-        .x = 0,
-        .y = 0,
-        .pc = 0xFFFC,
-        .s = 0xFD,
-        .p = CPU_STATUS_INTERRUPT_DISABLE,
-    };
-    memset(cpu.memory, 0, MEMORY_SIZE);
-
-    return cpu;
+static inline b8 cpu_get_status_flag(CPU* cpu, u8 flag) {
+    return (cpu->p & flag) != 0;
 }
 
-void cpu_destroy(CPU* cpu) {
-    free(cpu->memory);
-    *cpu = (CPU) {0};
+static inline void cpu_set_zero_negative(CPU* cpu, u8 value) {
+    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, value == 0);
+    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(value, 7));
 }
 
-void cpu_reset(CPU* cpu) {
-    cpu->pc = 0xFFFC;
-    cpu->s -= 3;
-    cpu->p |= CPU_STATUS_INTERRUPT_DISABLE;
-}
+// =============================================================================
+// Memory operation helpers 
+// =============================================================================
 
 static u8 cpu_read(CPU* cpu, u16 address) {
     u8 data = cpu->memory[address];
@@ -63,6 +51,71 @@ static u8 cpu_fetch(CPU* cpu) {
     cpu->cycle++;
     cpu->pc++;
     return data;
+}
+
+static void stack_push(CPU* cpu, u8 value) {
+    cpu_write(cpu, STACK_START + cpu->s, value);
+    cpu->s--;
+}
+
+static u8 stack_pop(CPU* cpu) {
+    cpu->s++;
+    return cpu_read(cpu, STACK_START + cpu->s);
+}
+
+
+
+void print_cpu_status(u8 status) {
+    printf("CPU Status:\n");
+    printf("    C = %d\n", (status >> 0) & 1);
+    printf("    Z = %d\n", (status >> 1) & 1);
+    printf("    I = %d\n", (status >> 2) & 1);
+    printf("    D = %d\n", (status >> 3) & 1);
+    printf("    V = %d\n", (status >> 6) & 1);
+    printf("    N = %d\n", (status >> 7) & 1);
+}
+
+CPU cpu_create(void) {
+    // [Power up state](https://www.nesdev.org/wiki/CPU_power_up_state)
+    // [Memory map](https://www.nesdev.org/wiki/CPU_memory_map)
+    CPU cpu = {
+        .memory = malloc(MEMORY_SIZE),
+        .a = 0,
+        .x = 0,
+        .y = 0,
+        .pc = 0xFFFC,
+        .s = 0,
+        .p = CPU_STATUS_INTERRUPT_DISABLE,
+    };
+    memset(cpu.memory, 0, MEMORY_SIZE);
+    // TODO: I'm unsure if we're actually suppoed to set the stack pointer here
+    // or let the program handle stack initialization.
+    // nesdev.org says stack pointer will be 0xFD but I'm not sure if this is a
+    // NES specific thing (maybe the NES 6502 has a program loaded that always
+    // does STX 0xFD, TXS)
+
+    return cpu;
+}
+
+void cpu_destroy(CPU* cpu) {
+    free(cpu->memory);
+    *cpu = (CPU) {0};
+}
+
+void cpu_reset(CPU* cpu) {
+    cpu->pc = 0xFFFC;
+    cpu_set_status_flag(cpu, CPU_STATUS_INTERRUPT_DISABLE, true);
+
+    // TODO: Make cpu reset and actual interrupt.
+
+    // We pop three times because this is a specialiced interrupt.
+    for (u8 i = 0; i < 3; i++) {
+        stack_pop(cpu);
+    }
+
+    u8 pc_low = cpu_fetch(cpu);
+    u8 pc_high = cpu_fetch(cpu);
+    cpu->pc = (u16) (pc_high << 8) | pc_low;
 }
 
 static Op opcode_decode(u8 opcode) {
@@ -149,23 +202,6 @@ static u16 get_address(CPU* cpu, AddrMode mode, b8 always_oops) {
 
     fprintf(stderr, "ERR: %s(): Addressing mode %s not allowed.\n", __func__, addr_mode_enum_string(mode));
     exit(1);
-}
-
-static inline void cpu_set_status_flag(CPU* cpu, u8 flag, b8 value) {
-    if (value) {
-        cpu->p |= flag;
-    } else {
-        cpu->p &= ~flag;
-    }
-}
-
-static inline b8 cpu_get_status_flag(CPU* cpu, u8 flag) {
-    return (cpu->p & flag) != 0;
-}
-
-static inline void cpu_set_zero_negative(CPU* cpu, u8 value) {
-    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, value == 0);
-    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(value, 7));
 }
 
 static void op_ld(CPU* cpu, Op op, u8* reg) {
@@ -340,6 +376,40 @@ static void op_ror(CPU* cpu, Op op) {
     }
 }
 
+static void op_jsr(CPU* cpu, Op op) {
+    u16 addr = get_address(cpu, op.addr_mode, false);
+
+    // Perform an extra cycle to put the low byte of the new address onto the
+    // address bus.
+    cpu->cycle++;
+
+    // Make sure to push *after* reading the next two bytes.
+    // Subtract one because RTS increments pc by 1.
+    u8 pc_high = (cpu->pc - 1) >> 8;
+    u8 pc_low = (cpu->pc - 1) & 0xFF;
+    stack_push(cpu, pc_high);
+    stack_push(cpu, pc_low);
+
+    cpu->pc = addr;
+}
+
+static void op_brk(CPU* cpu, Op op) {
+    (void) op;
+
+    u8 pc_high = (cpu->pc + 1) >> 8;
+    u8 pc_low = (cpu->pc + 1) & 0xFF;
+    stack_push(cpu, pc_high);
+    stack_push(cpu, pc_low);
+    stack_push(cpu, cpu->p | CPU_STATUS_BREAK | CPU_STATUS__EXPANSION);
+
+    // Interrupt vector
+    u8 handler_addr_low = cpu_read(cpu, 0xFFFE);
+    u8 handler_addr_high = cpu_read(cpu, 0xFFFF);
+    cpu->pc = ((u16) handler_addr_high << 8) | (handler_addr_low);
+
+    cpu_set_status_flag(cpu, CPU_STATUS_INTERRUPT_DISABLE, true);
+}
+
 // Implied addressing always incur an extra cycle.
 static inline void implied_addressing(CPU* cpu, Op op) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
@@ -438,6 +508,76 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
             cpu_set_zero_negative(cpu, cpu->y);
             break;
 
+        // Jump
+        case OP_JMP: {
+            u16 addr = get_address(cpu, op.addr_mode, false);
+            cpu->pc = addr;
+        } break;
+        case OP_JSR:
+            op_jsr(cpu, op);
+            break;
+        case OP_RTS: {
+            implied_addressing(cpu, op);
+            u8 addr_low = stack_pop(cpu);
+            u8 addr_high = stack_pop(cpu);
+            u16 addr = (addr_high << 8) | addr_low;
+            cpu->pc = addr + 1;
+            // Add an extra two cycles because of the parallel fetch decode
+            // shenanigans the 6502 does.
+            cpu->cycle += 2;
+        } break;
+        case OP_BRK:
+            implied_addressing(cpu, op);
+            op_brk(cpu, op);
+            break;
+        case OP_RTI: {
+            implied_addressing(cpu, op);
+            u8 status = stack_pop(cpu);
+            status &= ~(CPU_STATUS_BREAK | CPU_STATUS__EXPANSION);
+            cpu->p = status;
+
+            // Yet again another cycle because the parallel fetch and decode
+            // behavior.
+            cpu->cycle++;
+
+            u8 addr_low = stack_pop(cpu);
+            u8 addr_high = stack_pop(cpu);
+            u16 addr = (addr_high << 8) | addr_low;
+            cpu->pc = addr;
+        } break;
+
+        // Stack
+        case OP_PHA:
+            implied_addressing(cpu, op);
+            stack_push(cpu, cpu->a);
+            cpu->s--;
+            break;
+        case OP_PLA:
+            implied_addressing(cpu, op);
+            cpu->a = stack_pop(cpu);
+            cpu_set_zero_negative(cpu, cpu->a);
+            break;
+        case OP_PHP:
+            implied_addressing(cpu, op);
+            stack_push(cpu, cpu->p | CPU_STATUS_BREAK | CPU_STATUS__EXPANSION);
+            break;
+        case OP_PLP: {
+            implied_addressing(cpu, op);
+            u8 stack_p = stack_pop(cpu);
+            u8 old_interrupt_flag = cpu->p & CPU_STATUS_INTERRUPT_DISABLE;
+            cpu->p = (stack_p & ~CPU_STATUS_INTERRUPT_DISABLE) | old_interrupt_flag;
+            // TODO: Delay setting interrupt flag by one cycle because of
+            // interrupt polling.
+        } break;
+        case OP_TXS:
+            implied_addressing(cpu, op);
+            cpu->s = cpu->x;
+            break;
+        case OP_TSX:
+            implied_addressing(cpu, op);
+            cpu->x = cpu->s;
+            break;
+
         // Flags
         case OP_CLC:
             implied_addressing(cpu, op);
@@ -482,8 +622,10 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
     }
 }
 
-void cpu_step(CPU* cpu) {
+u8 cpu_step(CPU* cpu) {
+    u64 start_cycle = cpu->cycle;
     u8 opcode = cpu_fetch(cpu);
     Op op = opcode_decode(opcode);;
     cpu_execute(cpu, op, opcode);
+    return cpu->cycle - start_cycle;
 }
