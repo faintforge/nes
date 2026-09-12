@@ -277,18 +277,26 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
         case OP_TAX:
             implied_addressing(cpu, op);
             cpu->x = cpu->a;
+            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->x);
+            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->x, 7));
             break;
         case OP_TXA:
             implied_addressing(cpu, op);
             cpu->a = cpu->x;
+            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a);
+            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
             break;
         case OP_TAY:
             implied_addressing(cpu, op);
             cpu->y = cpu->a;
+            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->y);
+            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->y, 7));
             break;
         case OP_TYA:
             implied_addressing(cpu, op);
             cpu->a = cpu->y;
+            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a);
+            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
             break;
 
         // Arithmetic
