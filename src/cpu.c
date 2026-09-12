@@ -16,7 +16,7 @@ void print_cpu_status(u8 status) {
     printf("    D = %d\n", (status >> 3) & 1);
     printf("    B = %d\n", (status >> 4) & 1);
     printf("    O = %d\n", (status >> 6) & 1);
-    printf("    Z = %d\n", (status >> 7) & 1);
+    printf("    N = %d\n", (status >> 7) & 1);
 }
 
 CPU cpu_create(void) {
@@ -69,7 +69,7 @@ static Op opcode_decode(u8 opcode) {
     return OPCODE_TABLE[opcode];
 }
 
-static u32 get_address(CPU* cpu, AddrMode mode, b8 always_oops) {
+static u16 get_address(CPU* cpu, AddrMode mode, b8 always_oops) {
     // Implementation details can be found in chapter 6 of the programmers manual
     // for the 6502.
 
@@ -147,8 +147,20 @@ static u32 get_address(CPU* cpu, AddrMode mode, b8 always_oops) {
             break;
     }
 
-    assert(false && "Unreachable");
-    return ~0u;
+    fprintf(stderr, "ERR: %s(): Addressing mode %s not allowed.\n", __func__, addr_mode_enum_string(mode));
+    exit(1);
+}
+
+static inline void cpu_set_status_flag(CPU* cpu, u8 flag, b8 value) {
+    if (value) {
+        cpu->p |= flag;
+    } else {
+        cpu->p &= ~flag;
+    }
+}
+
+static inline b8 cpu_get_status_flag(CPU* cpu, u8 flag) {
+    return (cpu->p & flag) != 0;
 }
 
 static void op_ld(CPU* cpu, Op op, u8* reg) {
@@ -156,33 +168,39 @@ static void op_ld(CPU* cpu, Op op, u8* reg) {
     if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
         *reg = cpu_fetch(cpu);
     } else {
-        u32 addr = get_address(cpu, op.addr_mode, false);
-        if (addr > 0xFFFF) {
-            exit(1);
-        }
+        u16 addr = get_address(cpu, op.addr_mode, false);
         *reg = cpu_read(cpu, addr);
     }
 
-    if (cpu->a == 0) {
-        cpu->p |= CPU_STATUS_ZERO;
-    } else {
-        cpu->p &= ~CPU_STATUS_ZERO;
-    }
-
-    if (((cpu->a >> 6) & 1) == 1) {
-        cpu->p |= CPU_STATUS_NEGATIVE;
-    } else {
-        cpu->p &= ~CPU_STATUS_NEGATIVE;
-    }
+    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a == 0);
+    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
 }
 
 static void op_st(CPU* cpu, Op op, u8* reg) {
     assert(reg != NULL);
-    u32 addr = get_address(cpu, op.addr_mode, true);
-    if (addr > 0xFFFF) {
-        exit(1);
-    }
+    u16 addr = get_address(cpu, op.addr_mode, true);
     cpu_write(cpu, addr, *reg);
+}
+
+static void op_adc(CPU* cpu, Op op) {
+    u8 memory = -1;
+    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
+        memory = cpu_fetch(cpu);
+    } else {
+        u16 addr = get_address(cpu, op.addr_mode, false);
+        memory = cpu_read(cpu, addr);
+    }
+    u16 result = (u16) cpu->a + memory + cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
+
+    // Taken straight from nesdev.org
+    b8 overflow = ((result^cpu->a) & (result^memory) & 0x80) != 0;
+
+    cpu_set_status_flag(cpu, CPU_STATUS_CARRY, result > 0xFF);
+    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, result == 0);
+    cpu_set_status_flag(cpu, CPU_STATUS_OVERFLOW, overflow);
+    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(result, 7));
+
+    cpu->a = result;
 }
 
 // Implied addressing always incur an extra cycle.
@@ -229,6 +247,11 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
         case OP_TYA:
             implied_addressing(cpu, op);
             cpu->a = cpu->y;
+            break;
+
+        // Arithmetic
+        case OP_ADC:
+            op_adc(cpu, op);
             break;
 
         // Flags

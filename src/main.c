@@ -13,14 +13,24 @@ void pretty_print_opcode(u8 opcode) {
 i32 main(void) {
     CPU cpu = cpu_create();
 
+    u8 program[] = {
+        0x18, // CLC
+        0xA9, // LDA #imm
+        127,
+        0x69, // ADC #imm
+        1,
+    };
+
+    size_t program_length = sizeof(program)/sizeof(program[0]);
     cpu.pc = 0x0100;
-    cpu.memory[0x0100] = 0xA9; // LDA #imm
-    cpu.memory[0x0101] = 42;
-    cpu.memory[0x0102] = 0xA2; // LDX #imm
-    cpu.memory[0x0103] = 0;
-    cpu.memory[0x0104] = 0x8E; // STX abs
-    cpu.memory[0x0105] = 0x00;
-    cpu.memory[0x0106] = 0xFF;
+    for (size_t i = 0; i < program_length; i++) {
+        cpu.memory[cpu.pc + i] = program[i];
+    }
+    cpu.memory[cpu.pc + program_length + 0] = 0xA2; // LDX #imm
+    cpu.memory[cpu.pc + program_length + 1] = 0;
+    cpu.memory[cpu.pc + program_length + 2] = 0x8E; // STX abs
+    cpu.memory[cpu.pc + program_length + 3] = 0x00;
+    cpu.memory[cpu.pc + program_length + 4] = 0xFF;
     cpu.memory[0xFF00] = 255;
 
     b8 running = true;
@@ -28,7 +38,10 @@ i32 main(void) {
     while (running) {
         printf("%04X:    ", cpu.pc);
         pretty_print_opcode(cpu.memory[cpu.pc]);
+
+        // u64 cycles_start = cpu.cycle;
         cpu_step(&cpu);
+        // printf("cycles: %lu\n", cpu.cycle - cycles_start);
         if (cpu.memory[0xFF00] != 255) {
             running = false;
             result = cpu.memory[0xFF00];
@@ -36,7 +49,9 @@ i32 main(void) {
     }
 
     printf("cycles = %lu\n", cpu.cycle);
+    printf("a = %d\n", cpu.a);
     printf("result = %d\n", result);
+    print_cpu_status(cpu.p);
 
     cpu_destroy(&cpu);
     return result;

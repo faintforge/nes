@@ -31,4 +31,6 @@ typedef u32 b32;
 #define NULL ((void*) 0)
 #endif // NULL
 
+#define get_bit(value, bit_index) (((value) >> (bit_index)) & 1)
+
 #endif // COMMON_H
