@@ -10,7 +10,7 @@
 
 #include "nes/op.h"
 
-const Op OPCODE_TABLE[256] = {
+static const Op OPCODE_TABLE[256] = {
     // Column 0
     [0x00] = {OP_BRK,        ADDR_MODE_IMPLIED},        // BRK 
     [0x10] = {OP_BPL,        ADDR_MODE_RELATIVE},       // BPL rel
@@ -29,22 +29,22 @@ const Op OPCODE_TABLE[256] = {
     [0xE0] = {OP_CPX,        ADDR_MODE_IMMEDIATE},      // CPX #imm
     [0xF0] = {OP_BEQ,        ADDR_MODE_RELATIVE},       // BEQ rel
     // Column 1
-    [0x01] = {OP_ORA,        ADDR_MODE_INDIRECT_X},     // ORA ind,X
-    [0x11] = {OP_ORA,        ADDR_MODE_INDIRECT_Y},     // ORA ind,Y
-    [0x21] = {OP_AND,        ADDR_MODE_INDIRECT_X},     // AND ind,X
-    [0x31] = {OP_AND,        ADDR_MODE_INDIRECT_Y},     // AND ind,Y
-    [0x41] = {OP_EOR,        ADDR_MODE_INDIRECT_X},     // EOR ind,X
-    [0x51] = {OP_EOR,        ADDR_MODE_INDIRECT_Y},     // EOR ind,Y
-    [0x61] = {OP_ADC,        ADDR_MODE_INDIRECT_X},     // ADC ind,X
-    [0x71] = {OP_ADC,        ADDR_MODE_INDIRECT_Y},     // ADC ind,Y
-    [0x81] = {OP_STA,        ADDR_MODE_INDIRECT_X},     // STA ind,X
-    [0x91] = {OP_STA,        ADDR_MODE_INDIRECT_Y},     // STA ind,Y
-    [0xA1] = {OP_LDA,        ADDR_MODE_INDIRECT_X},     // LDA ind,X
-    [0xB1] = {OP_LDA,        ADDR_MODE_INDIRECT_Y},     // LDA ind,Y
-    [0xC1] = {OP_CMP,        ADDR_MODE_INDIRECT_X},     // CMP ind,X
-    [0xD1] = {OP_CMP,        ADDR_MODE_INDIRECT_Y},     // CMP ind,Y
-    [0xE1] = {OP_SBC,        ADDR_MODE_INDIRECT_X},     // SBC ind,X
-    [0xF1] = {OP_SBC,        ADDR_MODE_INDIRECT_Y},     // SBC ind,Y
+    [0x01] = {OP_ORA,        ADDR_MODE_INDIRECT_X},     // ORA (ind,X)
+    [0x11] = {OP_ORA,        ADDR_MODE_INDIRECT_Y},     // ORA (ind),Y
+    [0x21] = {OP_AND,        ADDR_MODE_INDIRECT_X},     // AND (ind,X)
+    [0x31] = {OP_AND,        ADDR_MODE_INDIRECT_Y},     // AND (ind),Y
+    [0x41] = {OP_EOR,        ADDR_MODE_INDIRECT_X},     // EOR (ind,X)
+    [0x51] = {OP_EOR,        ADDR_MODE_INDIRECT_Y},     // EOR (ind),Y
+    [0x61] = {OP_ADC,        ADDR_MODE_INDIRECT_X},     // ADC (ind,X)
+    [0x71] = {OP_ADC,        ADDR_MODE_INDIRECT_Y},     // ADC (ind),Y
+    [0x81] = {OP_STA,        ADDR_MODE_INDIRECT_X},     // STA (ind,X)
+    [0x91] = {OP_STA,        ADDR_MODE_INDIRECT_Y},     // STA (ind),Y
+    [0xA1] = {OP_LDA,        ADDR_MODE_INDIRECT_X},     // LDA (ind,X)
+    [0xB1] = {OP_LDA,        ADDR_MODE_INDIRECT_Y},     // LDA (ind),Y
+    [0xC1] = {OP_CMP,        ADDR_MODE_INDIRECT_X},     // CMP (ind,X)
+    [0xD1] = {OP_CMP,        ADDR_MODE_INDIRECT_Y},     // CMP (ind),Y
+    [0xE1] = {OP_SBC,        ADDR_MODE_INDIRECT_X},     // SBC (ind,X)
+    [0xF1] = {OP_SBC,        ADDR_MODE_INDIRECT_Y},     // SBC (ind),Y
     // Column 2
     [0x02] = {OP__UNDEFINED, ADDR_MODE__UNDEFINED},
     [0x12] = {OP__UNDEFINED, ADDR_MODE__UNDEFINED},
@@ -222,7 +222,7 @@ const Op OPCODE_TABLE[256] = {
     [0x3C] = {OP__UNDEFINED, ADDR_MODE__UNDEFINED},
     [0x4C] = {OP_JMP,        ADDR_MODE_ABSOLUTE},       // JMP abs
     [0x5C] = {OP__UNDEFINED, ADDR_MODE__UNDEFINED},
-    [0x6C] = {OP_JMP,        ADDR_MODE_INDIRECT},       // JMP ind
+    [0x6C] = {OP_JMP,        ADDR_MODE_INDIRECT},       // JMP (ind)
     [0x7C] = {OP__UNDEFINED, ADDR_MODE__UNDEFINED},
     [0x8C] = {OP_STY,        ADDR_MODE_ABSOLUTE},       // STY abs
     [0x9C] = {OP__UNDEFINED, ADDR_MODE__UNDEFINED},

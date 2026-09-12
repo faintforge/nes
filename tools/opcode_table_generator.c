@@ -18,7 +18,7 @@ static const char* OP_PRETTY_STRING[OP__COUNT] = {
 
 static const char* ADDR_MODE_PRETTY_STRING[ADDR_MODE__COUNT] = {
     "A",     "#imm", "zpg",   "zpg,X", "zpg,Y", "abs", "abs,X",
-    "abs,Y", "ind",  "ind,X", "ind,Y", "rel",   "",
+    "abs,Y", "(ind)",  "(ind,X)", "(ind),Y", "rel",   "",
 };
 
 static const char* OP_ENUM_STRING[OP__COUNT] = {
@@ -344,7 +344,7 @@ i32 main(i32 argc, char** argv) {
     printf("\n");
     printf("#include \"nes/op.h\"\n");
     printf("\n");
-    printf("const Op OPCODE_TABLE[256] = {\n");
+    printf("static const Op OPCODE_TABLE[256] = {\n");
     print_table_content();
     printf("};\n");
     printf("\n");

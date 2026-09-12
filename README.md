@@ -13,3 +13,6 @@ written previously.
 [6502 instruction matrix](https://en.wikipedia.org/wiki/MOS_Technology_6502#Instruction_table)
 [Addressing modes](https://www.nesdev.org/wiki/CPU_addressing_modes)
 [Instruction types](https://www.nesdev.org/wiki/Instruction_reference#BRK)
+[Power up state](https://www.nesdev.org/wiki/CPU_power_up_state)
+[Memory map](https://www.nesdev.org/wiki/CPU_memory_map)
+[MOS6500 programming manual](6502.org/documents/books/mcs6500_family_programming_manual.pdf)
