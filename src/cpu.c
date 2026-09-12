@@ -203,6 +203,26 @@ static void op_adc(CPU* cpu, Op op) {
     cpu->a = result;
 }
 
+static void op_sbc(CPU* cpu, Op op) {
+    u8 memory = -1;
+    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
+        memory = cpu_fetch(cpu);
+    } else {
+        u16 addr = get_address(cpu, op.addr_mode, false);
+        memory = cpu_read(cpu, addr);
+    }
+    // www.nesdev.org/wiki/Instruction_reference#SBC
+    u8 result = cpu->a - memory - cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
+    b8 overflow = ((result^cpu->a) & (result^memory) & 0x80) != 0;
+
+    cpu_set_status_flag(cpu, CPU_STATUS_CARRY, (i8) result < 0x00);
+    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, result == 0);
+    cpu_set_status_flag(cpu, CPU_STATUS_OVERFLOW, overflow);
+    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(result, 7));
+
+    cpu->a = result;
+}
+
 // Implied addressing always incur an extra cycle.
 static inline void implied_addressing(CPU* cpu, Op op) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
@@ -252,6 +272,9 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
         // Arithmetic
         case OP_ADC:
             op_adc(cpu, op);
+            break;
+        case OP_SBC:
+            op_sbc(cpu, op);
             break;
 
         // Flags

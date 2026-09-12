@@ -16,8 +16,8 @@ i32 main(void) {
     u8 program[] = {
         0x18, // CLC
         0xA9, // LDA #imm
-        127,
-        0x69, // ADC #imm
+        0,
+        0xE9, // SBC #imm
         1,
     };
 
