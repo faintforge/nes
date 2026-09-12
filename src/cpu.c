@@ -163,6 +163,11 @@ static inline b8 cpu_get_status_flag(CPU* cpu, u8 flag) {
     return (cpu->p & flag) != 0;
 }
 
+static inline void cpu_set_zero_negative(CPU* cpu, u8 value) {
+    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, value == 0);
+    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(value, 7));
+}
+
 static void op_ld(CPU* cpu, Op op, u8* reg) {
     assert(reg != NULL);
     if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
@@ -172,8 +177,7 @@ static void op_ld(CPU* cpu, Op op, u8* reg) {
         *reg = cpu_read(cpu, addr);
     }
 
-    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a == 0);
-    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
+    cpu_set_zero_negative(cpu, cpu->a);
 }
 
 static void op_st(CPU* cpu, Op op, u8* reg) {
@@ -196,9 +200,8 @@ static void op_adc(CPU* cpu, Op op) {
     b8 overflow = ((result^cpu->a) & (result^memory) & 0x80) != 0;
 
     cpu_set_status_flag(cpu, CPU_STATUS_CARRY, result > 0xFF);
-    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, result == 0);
     cpu_set_status_flag(cpu, CPU_STATUS_OVERFLOW, overflow);
-    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(result, 7));
+    cpu_set_zero_negative(cpu, result);
 
     cpu->a = result;
 }
@@ -216,9 +219,8 @@ static void op_sbc(CPU* cpu, Op op) {
     b8 overflow = ((result^cpu->a) & (result^memory) & 0x80) != 0;
 
     cpu_set_status_flag(cpu, CPU_STATUS_CARRY, (i8) result < 0x00);
-    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, result == 0);
     cpu_set_status_flag(cpu, CPU_STATUS_OVERFLOW, overflow);
-    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(result, 7));
+    cpu_set_zero_negative(cpu, result);
 
     cpu->a = result;
 }
@@ -243,8 +245,7 @@ static void op_dec(CPU* cpu, Op op) {
     memory--;
     cpu_write(cpu, addr, memory);
 
-    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, memory == 0);
-    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(memory, 7));
+    cpu_set_zero_negative(cpu, memory);
 }
 
 static void op_asl(CPU* cpu, Op op) {
@@ -252,8 +253,7 @@ static void op_asl(CPU* cpu, Op op) {
         b8 carry = get_bit(cpu->a, 7);
         cpu->a <<= 1;
         cpu_set_status_flag(cpu, CPU_STATUS_CARRY, carry);
-        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a == 0);
-        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
+        cpu_set_zero_negative(cpu, cpu->a);
 
         cpu->cycle++;
     } else {
@@ -266,8 +266,7 @@ static void op_asl(CPU* cpu, Op op) {
         cpu_write(cpu, addr, value);
 
         cpu_set_status_flag(cpu, CPU_STATUS_CARRY, carry);
-        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, value == 0);
-        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(value, 7));
+        cpu_set_zero_negative(cpu, value);
     }
 }
 
@@ -276,8 +275,7 @@ static void op_lsr(CPU* cpu, Op op) {
         b8 carry = get_bit(cpu->a, 0);
         cpu->a >>= 1;
         cpu_set_status_flag(cpu, CPU_STATUS_CARRY, carry);
-        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a == 0);
-        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
+        cpu_set_zero_negative(cpu, cpu->a);
 
         cpu->cycle++;
     } else {
@@ -290,8 +288,7 @@ static void op_lsr(CPU* cpu, Op op) {
         cpu_write(cpu, addr, value);
 
         cpu_set_status_flag(cpu, CPU_STATUS_CARRY, carry);
-        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, value == 0);
-        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(value, 7));
+        cpu_set_zero_negative(cpu, value);
     }
 }
 
@@ -301,8 +298,7 @@ static void op_rol(CPU* cpu, Op op) {
         b8 old_carry = cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
         cpu->a = (cpu->a << 1) | old_carry;
         cpu_set_status_flag(cpu, CPU_STATUS_CARRY, new_carry);
-        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a == 0);
-        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
+        cpu_set_zero_negative(cpu, cpu->a);
 
         cpu->cycle++;
     } else {
@@ -316,8 +312,7 @@ static void op_rol(CPU* cpu, Op op) {
         cpu_write(cpu, addr, result);
 
         cpu_set_status_flag(cpu, CPU_STATUS_CARRY, get_bit(value, 7));
-        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, result == 0);
-        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(result, 7));
+        cpu_set_zero_negative(cpu, result);
     }
 }
 
@@ -327,8 +322,7 @@ static void op_ror(CPU* cpu, Op op) {
         b8 old_carry = cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
         cpu->a = (cpu->a >> 1) | (old_carry << 7);
         cpu_set_status_flag(cpu, CPU_STATUS_CARRY, new_carry);
-        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a == 0);
-        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
+        cpu_set_zero_negative(cpu, cpu->a);
 
         cpu->cycle++;
     } else {
@@ -342,8 +336,7 @@ static void op_ror(CPU* cpu, Op op) {
         cpu_write(cpu, addr, result);
 
         cpu_set_status_flag(cpu, CPU_STATUS_CARRY, get_bit(value, 0));
-        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, result == 0);
-        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(result, 7));
+        cpu_set_zero_negative(cpu, result);
     }
 }
 
@@ -379,26 +372,22 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
         case OP_TAX:
             implied_addressing(cpu, op);
             cpu->x = cpu->a;
-            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->x);
-            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->x, 7));
+            cpu_set_zero_negative(cpu, cpu->x);
             break;
         case OP_TXA:
             implied_addressing(cpu, op);
             cpu->a = cpu->x;
-            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a);
-            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
+            cpu_set_zero_negative(cpu, cpu->a);
             break;
         case OP_TAY:
             implied_addressing(cpu, op);
             cpu->y = cpu->a;
-            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->y);
-            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->y, 7));
+            cpu_set_zero_negative(cpu, cpu->y);
             break;
         case OP_TYA:
             implied_addressing(cpu, op);
             cpu->a = cpu->y;
-            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a);
-            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
+            cpu_set_zero_negative(cpu, cpu->a);
             break;
 
         // Shift
@@ -431,26 +420,22 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
         case OP_INX:
             implied_addressing(cpu, op);
             cpu->x++;
-            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->x);
-            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->x, 7));
+            cpu_set_zero_negative(cpu, cpu->x);
             break;
         case OP_DEX:
             implied_addressing(cpu, op);
             cpu->x--;
-            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->y);
-            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->x, 7));
+            cpu_set_zero_negative(cpu, cpu->x);
             break;
         case OP_INY:
             implied_addressing(cpu, op);
             cpu->y++;
-            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->y);
-            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->y, 7));
+            cpu_set_zero_negative(cpu, cpu->y);
             break;
         case OP_DEY:
             implied_addressing(cpu, op);
             cpu->y--;
-            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->y);
-            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->y, 7));
+            cpu_set_zero_negative(cpu, cpu->y);
             break;
 
         // Flags
