@@ -228,10 +228,11 @@ static void op_inc(CPU* cpu, Op op) {
     u8 memory = cpu_read(cpu, addr);
     // Don't know why it does this extra write, but it does.
     cpu_write(cpu, addr, memory);
-    cpu_write(cpu, addr, memory+1);
+    memory++;
+    cpu_write(cpu, addr, memory);
 
-    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, memory+1 == 0);
-    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(memory+1, 7));
+    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, memory == 0);
+    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(memory, 7));
 }
 
 static void op_dec(CPU* cpu, Op op) {
@@ -239,10 +240,111 @@ static void op_dec(CPU* cpu, Op op) {
     u8 memory = cpu_read(cpu, addr);
     // Don't know why it does this extra write, but it does.
     cpu_write(cpu, addr, memory);
-    cpu_write(cpu, addr, memory-1);
+    memory--;
+    cpu_write(cpu, addr, memory);
 
-    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, memory-1 == 0);
-    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(memory-1, 7));
+    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, memory == 0);
+    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(memory, 7));
+}
+
+static void op_asl(CPU* cpu, Op op) {
+    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
+        b8 carry = get_bit(cpu->a, 7);
+        cpu->a <<= 1;
+        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, carry);
+        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a == 0);
+        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
+
+        cpu->cycle++;
+    } else {
+        u16 addr = get_address(cpu, op.addr_mode, true);
+        u8 value = cpu_read(cpu, addr);
+        b8 carry = get_bit(value, 7);
+
+        cpu_write(cpu, addr, value);
+        value <<= 1;
+        cpu_write(cpu, addr, value);
+
+        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, carry);
+        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, value == 0);
+        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(value, 7));
+    }
+}
+
+static void op_lsr(CPU* cpu, Op op) {
+    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
+        b8 carry = get_bit(cpu->a, 0);
+        cpu->a >>= 1;
+        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, carry);
+        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a == 0);
+        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
+
+        cpu->cycle++;
+    } else {
+        u16 addr = get_address(cpu, op.addr_mode, true);
+        u8 value = cpu_read(cpu, addr);
+        b8 carry = get_bit(value, 0);
+
+        cpu_write(cpu, addr, value);
+        value >>= 1;
+        cpu_write(cpu, addr, value);
+
+        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, carry);
+        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, value == 0);
+        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(value, 7));
+    }
+}
+
+static void op_rol(CPU* cpu, Op op) {
+    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
+        b8 new_carry = get_bit(cpu->a, 7);
+        b8 old_carry = cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
+        cpu->a = (cpu->a << 1) | old_carry;
+        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, new_carry);
+        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a == 0);
+        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
+
+        cpu->cycle++;
+    } else {
+        u16 addr = get_address(cpu, op.addr_mode, true);
+        u8 value = cpu_read(cpu, addr);
+
+        b8 old_carry = cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
+        u8 result = (value << 1) | old_carry;
+
+        cpu_write(cpu, addr, value);
+        cpu_write(cpu, addr, result);
+
+        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, get_bit(value, 7));
+        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, result == 0);
+        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(result, 7));
+    }
+}
+
+static void op_ror(CPU* cpu, Op op) {
+    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
+        b8 new_carry = get_bit(cpu->a, 0);
+        b8 old_carry = cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
+        cpu->a = (cpu->a >> 1) | (old_carry << 7);
+        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, new_carry);
+        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a == 0);
+        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
+
+        cpu->cycle++;
+    } else {
+        u16 addr = get_address(cpu, op.addr_mode, true);
+        u8 value = cpu_read(cpu, addr);
+
+        b8 old_carry = cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
+        u8 result = (value >> 1) | (old_carry << 7);
+
+        cpu_write(cpu, addr, value);
+        cpu_write(cpu, addr, result);
+
+        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, get_bit(value, 0));
+        cpu_set_status_flag(cpu, CPU_STATUS_ZERO, result == 0);
+        cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(result, 7));
+    }
 }
 
 // Implied addressing always incur an extra cycle.
@@ -297,6 +399,20 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
             cpu->a = cpu->y;
             cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->a);
             cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->a, 7));
+            break;
+
+        // Shift
+        case OP_ASL:
+            op_asl(cpu, op);
+            break;
+        case OP_LSR:
+            op_lsr(cpu, op);
+            break;
+        case OP_ROL:
+            op_rol(cpu, op);
+            break;
+        case OP_ROR:
+            op_ror(cpu, op);
             break;
 
         // Arithmetic
