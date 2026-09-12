@@ -223,6 +223,28 @@ static void op_sbc(CPU* cpu, Op op) {
     cpu->a = result;
 }
 
+static void op_inc(CPU* cpu, Op op) {
+    u16 addr = get_address(cpu, op.addr_mode, true);
+    u8 memory = cpu_read(cpu, addr);
+    // Don't know why it does this extra write, but it does.
+    cpu_write(cpu, addr, memory);
+    cpu_write(cpu, addr, memory+1);
+
+    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, memory+1 == 0);
+    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(memory+1, 7));
+}
+
+static void op_dec(CPU* cpu, Op op) {
+    u16 addr = get_address(cpu, op.addr_mode, true);
+    u8 memory = cpu_read(cpu, addr);
+    // Don't know why it does this extra write, but it does.
+    cpu_write(cpu, addr, memory);
+    cpu_write(cpu, addr, memory-1);
+
+    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, memory-1 == 0);
+    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(memory-1, 7));
+}
+
 // Implied addressing always incur an extra cycle.
 static inline void implied_addressing(CPU* cpu, Op op) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
@@ -275,6 +297,12 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
             break;
         case OP_SBC:
             op_sbc(cpu, op);
+            break;
+        case OP_INC:
+            op_inc(cpu, op);
+            break;
+        case OP_DEC:
+            op_dec(cpu, op);
             break;
 
         // Flags

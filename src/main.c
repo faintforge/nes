@@ -17,8 +17,11 @@ i32 main(void) {
         0x18, // CLC
         0xA9, // LDA #imm
         0,
-        0xE9, // SBC #imm
+        0x85, // STA zpg
         1,
+        0xDE, // DEC abs,X
+        0x00,
+        0xF1,
     };
 
     size_t program_length = sizeof(program)/sizeof(program[0]);
@@ -39,9 +42,9 @@ i32 main(void) {
         printf("%04X:    ", cpu.pc);
         pretty_print_opcode(cpu.memory[cpu.pc]);
 
-        // u64 cycles_start = cpu.cycle;
+        u64 cycles_start = cpu.cycle;
         cpu_step(&cpu);
-        // printf("cycles: %lu\n", cpu.cycle - cycles_start);
+        printf("cycles: %lu\n", cpu.cycle - cycles_start);
         if (cpu.memory[0xFF00] != 255) {
             running = false;
             result = cpu.memory[0xFF00];
@@ -49,7 +52,7 @@ i32 main(void) {
     }
 
     printf("cycles = %lu\n", cpu.cycle);
-    printf("a = %d\n", cpu.a);
+    printf("a = %d\n", cpu.memory[0xF100]);
     printf("result = %d\n", result);
     print_cpu_status(cpu.p);
 
