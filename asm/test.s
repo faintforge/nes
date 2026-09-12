@@ -1,21 +1,35 @@
 .segment "VECTORS"
 .word nmi
-.word reset
+.word start
 .word irq
 
 .segment "CODE"
-reset:
-    ldx $FD
+start:
+    stx $4000
+    ; set up stack
+    ldx #$FF
     txs
-    lda #42
+
+    stx $4001
+
+    lda #0
+    jsr stop
+
+reset:
+    stx $4000
+    ; set up stack
+    ldx #$FF
+    txs
+    rts
+
+stop:
+    sta $7FFF
     brk
 
 nmi:
-    ldx #1
-    stx $FF00
-    rti
+    lda #2
+    jmp stop
 
 irq:
-    ldx #0
-    stx $FF00
-    rti
+    lda #1
+    jmp stop
