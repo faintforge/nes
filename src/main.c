@@ -6,21 +6,8 @@
 #include <stdio.h>
 
 void pretty_print_opcode(u8 opcode) {
-    static const char* OP_PRETTY_STRING[OP__COUNT] = {
-        "LDA", "STA", "LDX", "STX", "LDY", "STY", "TAX", "TXA", "TAY", "TYA",
-        "ADC", "SBC", "INC", "DEC", "DEX", "INX", "INY", "DEY", "ASL", "LSR",
-        "ROL", "ROR", "AND", "ORA", "EOR", "BIT", "CMP", "CPX", "CPY", "BCC",
-        "BCS", "BEQ", "BNE", "BPL", "BMI", "BVC", "BVS", "JMP", "JSR", "RTS",
-        "BRK", "RTI", "PHA", "PLA", "PHP", "PLP", "TXS", "TSX", "CLC", "SEC",
-        "CLI", "SEI", "CLD", "SED", "CLV", "NOP",
-    };
-
-    static const char* ADDR_MODE_PRETTY_STRING[ADDR_MODE__COUNT] = {
-        "A",     "#imm", "zpg",   "zpg,X", "zpg,Y", "abs", "abs,X",
-        "abs,Y", "(ind)",  "(ind,X)", "(ind),Y", "rel",   "",
-    };
     Op op = OPCODE_TABLE[opcode];
-    printf("%02X: %s %s\n", opcode, OP_PRETTY_STRING[op.type], ADDR_MODE_PRETTY_STRING[op.addr_mode]);
+    printf("%02X: %s %s\n", opcode, op_pretty_string(op.type), addr_mode_pretty_string(op.addr_mode));
 }
 
 i32 main(void) {

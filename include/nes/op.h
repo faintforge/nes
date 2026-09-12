@@ -77,4 +77,14 @@ struct Op {
     AddrMode addr_mode;
 };
 
+static const Op OP_UNDEFINED = {
+    .type = OP__UNDEFINED,
+    .addr_mode = ADDR_MODE__UNDEFINED,
+};
+
+extern const char* op_pretty_string(OpType type);
+extern const char* addr_mode_pretty_string(AddrMode mode);
+extern const char* op_enum_string(OpType type);
+extern const char* addr_mode_enum_string(AddrMode mode);
+
 #endif // OP_H

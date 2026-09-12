@@ -2,44 +2,6 @@
 
 #include <stdio.h>
 
-static const Op OP_UNDEFINED = {
-    .type = OP__UNDEFINED,
-    .addr_mode = ADDR_MODE__UNDEFINED,
-};
-
-static const char* OP_PRETTY_STRING[OP__COUNT] = {
-    "LDA", "STA", "LDX", "STX", "LDY", "STY", "TAX", "TXA", "TAY", "TYA",
-    "ADC", "SBC", "INC", "DEC", "DEX", "INX", "INY", "DEY", "ASL", "LSR",
-    "ROL", "ROR", "AND", "ORA", "EOR", "BIT", "CMP", "CPX", "CPY", "BCC",
-    "BCS", "BEQ", "BNE", "BPL", "BMI", "BVC", "BVS", "JMP", "JSR", "RTS",
-    "BRK", "RTI", "PHA", "PLA", "PHP", "PLP", "TXS", "TSX", "CLC", "SEC",
-    "CLI", "SEI", "CLD", "SED", "CLV", "NOP",
-};
-
-static const char* ADDR_MODE_PRETTY_STRING[ADDR_MODE__COUNT] = {
-    "A",     "#imm", "zpg",   "zpg,X", "zpg,Y", "abs", "abs,X",
-    "abs,Y", "(ind)",  "(ind,X)", "(ind),Y", "rel",   "",
-};
-
-static const char* OP_ENUM_STRING[OP__COUNT] = {
-    "OP_LDA", "OP_STA", "OP_LDX", "OP_STX", "OP_LDY", "OP_STY", "OP_TAX",
-    "OP_TXA", "OP_TAY", "OP_TYA", "OP_ADC", "OP_SBC", "OP_INC", "OP_DEC",
-    "OP_DEX", "OP_INX", "OP_INY", "OP_DEY", "OP_ASL", "OP_LSR", "OP_ROL",
-    "OP_ROR", "OP_AND", "OP_ORA", "OP_EOR", "OP_BIT", "OP_CMP", "OP_CPX",
-    "OP_CPY", "OP_BCC", "OP_BCS", "OP_BEQ", "OP_BNE", "OP_BPL", "OP_BMI",
-    "OP_BVC", "OP_BVS", "OP_JMP", "OP_JSR", "OP_RTS", "OP_BRK", "OP_RTI",
-    "OP_PHA", "OP_PLA", "OP_PHP", "OP_PLP", "OP_TXS", "OP_TSX", "OP_CLC",
-    "OP_SEC", "OP_CLI", "OP_SEI", "OP_CLD", "OP_SED", "OP_CLV", "OP_NOP",
-};
-
-static const char* ADDR_MODE_ENUM_STRING[ADDR_MODE__COUNT] = {
-    "ADDR_MODE_ACCUMULATOR", "ADDR_MODE_IMMEDIATE",   "ADDR_MODE_ZERO_PAGE",
-    "ADDR_MODE_ZERO_PAGE_X", "ADDR_MODE_ZERO_PAGE_Y", "ADDR_MODE_ABSOLUTE",
-    "ADDR_MODE_ABSOLUTE_X",  "ADDR_MODE_ABSOLUTE_Y",  "ADDR_MODE_INDIRECT",
-    "ADDR_MODE_INDIRECT_X",  "ADDR_MODE_INDIRECT_Y",  "ADDR_MODE_RELATIVE",
-    "ADDR_MODE_IMPLIED",
-};
-
 static Op decode_cc0(u8 aaa, u8 bbb) {
     // columns 0, 4, 8, C
 
@@ -320,10 +282,10 @@ void print_table_content(void) {
             } else {
                 char buffer[80] = {0};
                 snprintf(buffer, 80, "    [0x%02X] = {%s,%-8s%s},", opcode,
-                        OP_ENUM_STRING[op.type], "",
-                        ADDR_MODE_ENUM_STRING[op.addr_mode]);
-                printf("%-56s// %s %s\n", buffer, OP_PRETTY_STRING[op.type],
-                        ADDR_MODE_PRETTY_STRING[op.addr_mode]);
+                        op_enum_string(op.type), "",
+                        addr_mode_enum_string(op.addr_mode));
+                printf("%-56s// %s %s\n", buffer, op_pretty_string(op.type),
+                        addr_mode_pretty_string(op.addr_mode));
             }
         }
     }
