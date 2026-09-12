@@ -312,6 +312,30 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
         case OP_DEC:
             op_dec(cpu, op);
             break;
+        case OP_INX:
+            implied_addressing(cpu, op);
+            cpu->x++;
+            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->x);
+            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->x, 7));
+            break;
+        case OP_DEX:
+            implied_addressing(cpu, op);
+            cpu->x--;
+            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->y);
+            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->x, 7));
+            break;
+        case OP_INY:
+            implied_addressing(cpu, op);
+            cpu->y++;
+            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->y);
+            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->y, 7));
+            break;
+        case OP_DEY:
+            implied_addressing(cpu, op);
+            cpu->y--;
+            cpu_set_status_flag(cpu, CPU_STATUS_ZERO, cpu->y);
+            cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(cpu->y, 7));
+            break;
 
         // Flags
         case OP_CLC:
