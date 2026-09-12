@@ -2,12 +2,11 @@
 #include "nes/opcode_table.h"
 
 #include <stdlib.h>
-#include <string.h>
 #include <stdio.h>
 #include <assert.h>
 
 #define MEMORY_SIZE 0x10000
-// Stack = page 1
+// Stack = page 1 [0100-01FF]
 #define STACK_START 0x0100
 
 // =============================================================================
@@ -198,7 +197,7 @@ static void op_ld(CPU* cpu, Op op, u8* reg) {
         *reg = cpu_read(cpu, addr);
     }
 
-    cpu_set_zero_negative(cpu, cpu->a);
+    cpu_set_zero_negative(cpu, *reg);
 }
 
 static void op_st(CPU* cpu, Op op, u8* reg) {
@@ -254,8 +253,7 @@ static void op_inc(CPU* cpu, Op op) {
     memory++;
     cpu_write(cpu, addr, memory);
 
-    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, memory == 0);
-    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(memory, 7));
+    cpu_set_zero_negative(cpu, memory);
 }
 
 static void op_dec(CPU* cpu, Op op) {
