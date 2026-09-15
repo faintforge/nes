@@ -334,7 +334,7 @@ i32 main(int argc, char** argv) {
     if (test.memory_ops_length != machine.mem_op_i) {
         passed = false;
         printf("ERR: Memory op\n");
-        printf("%d, %d\n", test.memory_ops_length, machine.mem_op_i);
+        printf("Expecetd: %d ops, performed: %d ops\n", test.memory_ops_length, machine.mem_op_i);
     }
 
     for (u8 i = 0; i < test.memory_ops_length; i++) {

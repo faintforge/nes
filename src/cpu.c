@@ -122,11 +122,11 @@ static u16 get_address(CPU* cpu, AddrMode mode, b8 always_oops) {
         case ADDR_MODE_ZERO_PAGE_X:
             // Oops cycle
             cpu->cycle++;
-            return cpu_fetch(cpu) + cpu->x;
+            return (cpu_fetch(cpu) + cpu->x) & 0xFF;
         case ADDR_MODE_ZERO_PAGE_Y:
             // Oops cycle
             cpu->cycle++;
-            return cpu_fetch(cpu) + cpu->y;
+            return (cpu_fetch(cpu) + cpu->y) & 0xFF;
         case ADDR_MODE_ABSOLUTE: {
             u8 low = cpu_fetch(cpu);
             u16 high = cpu_fetch(cpu);
@@ -158,8 +158,8 @@ static u16 get_address(CPU* cpu, AddrMode mode, b8 always_oops) {
         }
         case ADDR_MODE_INDIRECT_X: {
             u8 zero_page_addr = cpu_fetch(cpu);
-            u8 low = cpu_read(cpu, zero_page_addr + cpu->x);
-            u16 high = cpu_read(cpu, zero_page_addr + cpu->x + 1);
+            u8 low = cpu_read(cpu, (zero_page_addr + cpu->x) & 0xFF);
+            u16 high = cpu_read(cpu, (zero_page_addr + cpu->x + 1) & 0xFF);
             // Always add and oops cycle because otherwise the next instruction
             // could read the wrong address on the wrong page while the ALU
             // fixes the page overflow.
@@ -597,7 +597,7 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
             break;
 
         case OP__UNDEFINED:
-            printf("ERR: Undefined instruction : %02X\n", opcode);
+            printf("ERR: Undefined instruction: %02X\n", opcode);
             exit(1);
         default:
             printf("ERR: Unimplemented instruction: %02X\n", opcode);

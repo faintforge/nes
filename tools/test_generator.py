@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from opcode_table import OPCODES
 from enum import IntEnum, IntFlag
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, replace, field
 import struct
 
 # Mode determines operand and what needs to be where in memory as well as x and
@@ -51,16 +51,6 @@ class MemoryOp:
     address: int
     value: int
 
-@dataclass
-class ModeState:
-    a: int
-    x: int
-    y: int
-    operand: int
-    operand_length: int
-    memory: dict[int, int]
-    memory_ops: list[MemoryOp]
-
 class TestCase:
     # TODO: Scrape cycle count and instruction length from some website and
     # include those in the test case
@@ -84,154 +74,163 @@ class TestCase:
             data += struct.pack("<BHB", op.type, op.address, op.value)
         return data
 
-def mode_state(mode: str, value: int) -> ModeState:
-    # TODO: Handle page boundaries cases
-    state = ModeState(
-            a=0,
-            x=0,
-            y=0,
-            operand=0,
-            operand_length=0,
-            memory={},
-            memory_ops=[]
-        )
+@dataclass
+class ResolvedAddress:
+    address: int | None
+    memory: dict[int, int] = field(default_factory=dict)
+    memory_ops: list[MemoryOp] = field(default_factory=list)
 
-    if mode == "A":
-        state.a = value
+class AddressResolver:
+    @staticmethod
+    def resolve_mode(mode: str, operand: int, x: int, y: int, indirect_base_address: int = 0) -> ResolvedAddress:
+        match mode:
+            case "A": return ResolvedAddress(None)
+            case "#imm": return ResolvedAddress(None)
+            case "zpg": return AddressResolver.zero_page(operand)
+            case "zpg,X": return AddressResolver.zero_page_x(operand, x)
+            case "zpg,Y": return AddressResolver.zero_page_y(operand, y)
+            case "abs": return AddressResolver.absolute(operand)
+            case "abs,X": return AddressResolver.absolute_x(operand, x)
+            case "abs,Y": return AddressResolver.absolute_y(operand, y)
+            case "(ind)": return AddressResolver.indirect(operand, y, indirect_base_address)
+            case "(ind,X)": return AddressResolver.indexed_indirect(operand, x, indirect_base_address)
+            case "(ind),Y": return AddressResolver.indirect_indexed(operand, y, indirect_base_address)
+            case "rel": return ResolvedAddress(None)
+            case "": return ResolvedAddress(None)
 
-    elif mode == "#imm":
-        state.operand = value
-        state.operand_length = 1
+    @staticmethod
+    def zero_page(operand: int) -> ResolvedAddress:
+        return ResolvedAddress(operand & 0xFF)
 
-    elif mode == "zpg":
-        state.operand = 0x0A
-        state.operand_length = 1
-        state.memory = {state.operand: value}
-        state.memory_ops = [
-            MemoryOp(MemoryOpType.READ, state.operand, value)
-        ]
+    @staticmethod
+    def zero_page_x(operand: int, x: int) -> ResolvedAddress:
+        return ResolvedAddress((operand+x) & 0xFF)
 
-    elif mode == "zpg,X":
-        state.x = 0x0A
-        state.operand = 0x01
-        state.operand_length = 1
-        state.memory = {state.operand+state.x: value}
-        state.memory_ops = [
-            MemoryOp(MemoryOpType.READ, state.operand+state.x, value)
-        ]
+    @staticmethod
+    def zero_page_y(operand: int, y: int) -> ResolvedAddress:
+        return ResolvedAddress((operand+y) & 0xFF)
 
-    elif mode == "zpg,Y":
-        state.y = 0x0A
-        state.operand = 0x02
-        state.operand_length = 1
-        state.memory = {state.operand+state.y: value}
-        state.memory_ops = [
-            MemoryOp(MemoryOpType.READ, state.operand+state.y, value)
-        ]
+    @staticmethod
+    def absolute(operand: int) -> ResolvedAddress:
+        return ResolvedAddress(operand)
 
-    elif mode == "abs":
-        state.operand = 0x0A00
-        state.operand_length = 2
-        state.memory = {state.operand: value}
-        state.memory_ops = [
-            MemoryOp(MemoryOpType.READ, state.operand, value)
-        ]
+    @staticmethod
+    def absolute_x(operand: int, x: int) -> ResolvedAddress:
+        return ResolvedAddress(operand+x)
 
-    elif mode == "abs,X":
-        state.x = 0x1A
-        state.operand = 0x0A01
-        state.operand_length = 2
-        state.memory = {state.operand+state.x: value}
-        state.memory_ops = [
-            MemoryOp(MemoryOpType.READ, state.operand+state.x, value)
-        ]
+    @staticmethod
+    def absolute_y(operand: int, y: int) -> ResolvedAddress:
+        return ResolvedAddress(operand+y)
 
-    elif mode == "abs,Y":
-        state.y = 0x2B
-        state.operand = 0x0A02
-        state.operand_length = 2
-        state.memory = {state.operand+state.y: value}
-        state.memory_ops = [
-            MemoryOp(MemoryOpType.READ, state.operand+state.y, value)
-        ]
+    @staticmethod
+    def indirect(operand: int, indirect_base_address: int) -> ResolvedAddress:
+        low_addr = operand & 0xFF
+        high_addr = (operand+1) & 0xFF
+        low = indirect_base_address & 0xFF
+        high = (indirect_base_address >> 8) & 0xFF
+        return ResolvedAddress(low | (high<<8), memory_ops=[
+            MemoryOp(MemoryOpType.READ, operand, low),
+            MemoryOp(MemoryOpType.READ, operand+1, high)
+        ], memory={
+            low_addr: low,
+            high_addr: high
+        })
 
-    elif mode == "(ind)":
-        state.operand = 0x0A10
-        state.operand_length = 2
-        state.memory = {
-            state.operand+0: 0x02,
-            state.operand+1: 0x0B,
-            0x0B02: value,
-        }
-        state.memory_ops = [
-            MemoryOp(MemoryOpType.READ, state.operand+0, 0x02),
-            MemoryOp(MemoryOpType.READ, state.operand+1, 0x0B),
-            MemoryOp(MemoryOpType.READ, 0x0B02, value),
-        ]
+    @staticmethod
+    def indexed_indirect(operand: int, x: int, indirect_base_address: int) -> ResolvedAddress:
+        low_addr = (operand+x) & 0xFF
+        high_addr = (operand+x+1) & 0xFF
+        low = indirect_base_address & 0xFF
+        high = (indirect_base_address >> 8) & 0xFF
+        return ResolvedAddress(low | (high<<8), memory_ops=[
+            MemoryOp(MemoryOpType.READ, low_addr, low),
+            MemoryOp(MemoryOpType.READ, high_addr, high)
+        ], memory={
+            low_addr: low,
+            high_addr: high
+        })
 
-    elif mode == "(ind,X)":
-        state.x = 0x0C
-        state.operand = 0x13
-        state.operand_length = 1
-        state.memory = {
-            state.operand+state.x+0: 0x0A,
-            state.operand+state.x+1: 0x0B,
-            0x0B0A: value,
-        }
-        state.memory_ops = [
-            MemoryOp(MemoryOpType.READ, state.operand+state.x+0, 0x0A),
-            MemoryOp(MemoryOpType.READ, state.operand+state.x+1, 0x0B),
-            MemoryOp(MemoryOpType.READ, 0x0B0A, value),
-        ]
+    @staticmethod
+    def indirect_indexed(operand: int, y: int, indirect_base_address: int) -> int:
+        low_addr = operand
+        high_addr = (operand+1) & 0xFF
+        low = indirect_base_address & 0xFF
+        high = (indirect_base_address >> 8) & 0xFF
+        return ResolvedAddress((low | (high<<8)) + y, memory_ops=[
+            MemoryOp(MemoryOpType.READ, low_addr, low),
+            MemoryOp(MemoryOpType.READ, high_addr, high)
+        ], memory={
+            low_addr: low,
+            high_addr: high
+        })
 
-    elif mode == "(ind),Y":
-        state.y = 0x0D
-        state.operand = 0x0F
-        state.operand_length = 1
-        state.memory = {
-            state.operand: 0x3C,
-            state.operand+1: 0x0B,
-            0x0B3C+state.y: value,
-        }
-        state.memory_ops = [
-            MemoryOp(MemoryOpType.READ, state.operand+0, 0x3C),
-            MemoryOp(MemoryOpType.READ, state.operand+1, 0x0B),
-            MemoryOp(MemoryOpType.READ, 0x0B3C+state.y, value),
-        ]
+@dataclass
+class Operand:
+    # Absolutely terrible name but it'll work
+    operand: int
+    length: int
+    indirect_address: int = 0
+    memory: dict[int, int] = field(default_factory=dict)
 
-    elif mode == "rel":
-        raise NotImplementedError("Relative addressing")
+def get_operand_read(value: int, mode: str, x: int, y: int) -> Operand:
+    match mode:
+        case "A": return None
+        case "#imm": return Operand(value, 1)
+        case "zpg": return Operand(0xB2, 1, memory={0xB2: value})
+        case "zpg,X": return Operand(0xB1, 1, memory={(0xB1+x) & 0xFF: value})
+        case "zpg,Y": return Operand(0xB4, 1, memory={(0xB4+y) & 0xFF: value})
+        case "abs": return Operand(0x0B3F, 2, memory={0x0B3F: value})
+        case "abs,X": return Operand(0x0B3F, 2, memory={0x0B3F+x: value})
+        case "abs,Y": return Operand(0x0B3F, 2, memory={0x0B3F+y: value})
+        case "(ind)": return Operand(0xC1, 1, memory={0x0B3F: value}, indirect_address=0x0B3F)
+        case "(ind,X)": return Operand(0x03, 1, memory={0x0B3F: value}, indirect_address=0x0B3F)
+        case "(ind),Y": return Operand(0xC4, 1, memory={0x0B3F+y: value}, indirect_address=0x0B3F)
+        case "rel": raise NotImplementedError()
+        case "": return None
 
-    return state
+# Indirect indexed: 
+# opcode
+# zpg address
+# zpg   -> low addr
+# zpg+1 -> high addr
+# addr  -> value
 
 def lda_test(instructions):
     for mode, opcode in instructions["LDA"].items():
         value = 42
-        state = mode_state(mode, value)
-
+        x = 0xFF
+        y = 0xB1
+        operand = get_operand_read(value, mode, x, y)
+        address = AddressResolver.resolve_mode(mode, operand.operand, x, y, indirect_base_address=operand.indirect_address)
         initial = CPU(
             a=0,
-            x=state.x,
-            y=state.y,
+            x=x,
+            y=y,
             s=0xFF,
             p=0,
             pc=0x8000,
-            memory=state.memory.copy(),
+            memory=address.memory.copy() | operand.memory
         )
+        print(initial.memory)
+
+        initial.memory[initial.pc] = opcode
         memory_ops = [MemoryOp(MemoryOpType.READ, initial.pc, opcode)]
-        for i in range(state.operand_length):
+        for i in range(operand.length):
+            initial.memory[initial.pc+1+i] = (operand.operand >> (8*i)) & 0xFF
             memory_ops.append(MemoryOp(
                     MemoryOpType.READ,
                     initial.pc+i+1,
-                    (state.operand >> (8*i)) & 0xFF))
-        memory_ops += state.memory_ops
+                    (operand.operand >> (8*i)) & 0xFF))
+        memory_ops += address.memory_ops
+        if address.address != None:
+            memory_ops.append(MemoryOp(MemoryOpType.READ, address.address, value))
 
-        expected = replace(initial, a=value, pc=initial.pc+state.operand_length+1)
+        expected = replace(initial, a=value, pc=initial.pc+operand.length+1)
 
         case = TestCase(
             name=f"LDA {mode}",
             opcode=opcode,
-            operand=state.operand,
+            operand=value,
             cpu_initial=initial,
             cpu_expected=expected,
             memory_ops=memory_ops,
