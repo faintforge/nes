@@ -11,6 +11,9 @@
 
 // FORMAT
 //
+// testCount: u16
+// nameLength: u8
+// nameData: u8
 // opcode: u8
 // operand: u16
 //
@@ -47,8 +50,9 @@
 //     address: u16
 //     value: u8
 
-#define MAX_MEMORY_ENTREIS 8
-#define MAX_MEMORY_OPS 8
+#define MAX_MEMORY_ENTREIS 16
+#define MAX_MEMORY_OPS 16
+#define MAX_NAME_LENGTH 16
 
 typedef enum MemoryOpType {
     MEM_OP_READ,
@@ -70,6 +74,9 @@ struct MemoryEntry {
 
 typedef struct TestCase TestCase;
 struct TestCase {
+    u8 name[MAX_NAME_LENGTH];
+    u16 name_length;
+
     u8 opcode;
     u16 operand;
 
@@ -239,30 +246,54 @@ void read_memory_ops(TestCase* test, FILE* fp) {
     }
 }
 
-TestCase load_test_file(const char* filename) {
-    TestCase test = {0};
+void read_name(TestCase* test, FILE* fp) {
+    u8 length = read_u8(fp);
+    assert(length <= MAX_NAME_LENGTH);
+    test->name_length = length;
+    for (u8 i = 0; i < length; i++) {
+        test->name[i] = read_u8(fp);
+    }
+}
+
+void read_test(TestCase* test, FILE* fp) {
+    read_name(test, fp);
+
+    test->opcode = read_u8(fp);
+    test->operand = read_u16(fp);
+
+    test->initial_cpu = read_cpu(fp);
+    read_memory(&test->initial_memory_length, test->initial_memory, fp);
+
+    test->expected_cpu = read_cpu(fp);
+    read_memory(&test->expected_memory_length, test->expected_memory, fp);
+
+    read_memory_ops(test, fp);
+}
+
+void load_test_file(const char* filename, u16* count, TestCase* tests) {
+    assert(count != NULL);
 
     FILE* fp = fopen(filename, "rb");
     if (fp == NULL) {
         fprintf(stderr, "ERR: Failed to read %s: %s\n", filename, strerror(errno));
-        return test;
     }
 
-    test.opcode = read_u8(fp);
-    test.operand = read_u16(fp);
+    u16 test_count = read_u16(fp);
 
-    test.initial_cpu = read_cpu(fp);
-    read_memory(&test.initial_memory_length, test.initial_memory, fp);
+    // Only return count.
+    if (tests == NULL) {
+        *count = test_count;
+        return;
+    }
 
-    test.expected_cpu = read_cpu(fp);
-    read_memory(&test.expected_memory_length, test.expected_memory, fp);
+    assert(*count == test_count);
 
-    read_memory_ops(&test, fp);
+    for (u16 i = 0; i < test_count; i++) {
+        read_test(&tests[i], fp);
+    }
 
     assert(fgetc(fp) == EOF);
     fclose(fp);
-
-    return test;
 }
 
 void pretty_print_opcode(u8 opcode) {
@@ -270,14 +301,7 @@ void pretty_print_opcode(u8 opcode) {
     printf("%02X: %s %s", opcode, op_pretty_string(op.type), addr_mode_pretty_string(op.addr_mode));
 }
 
-i32 main(int argc, char** argv) {
-    if (argc != 2) {
-        fprintf(stderr, "Usage: %s [ROM_FILE]\n", argv[0]);
-        return 1;
-    }
-
-    TestCase test = load_test_file(argv[1]);
-
+void run_test(const TestCase* test) {
     // Set up CPU
     TestingMachine machine = {
         .running = true,
@@ -287,21 +311,21 @@ i32 main(int argc, char** argv) {
         .read = bus_read,
         .write = bus_write,
     };
-    CPU cpu = test.initial_cpu;
+    CPU cpu = test->initial_cpu;
     cpu.bus = bus;
 
     // Set up ROM
-    machine.memory[0x8000] = test.opcode;
-    if (test.operand <= 0xFF) {
-        machine.memory[0x8001] = test.operand;
+    machine.memory[0x8000] = test->opcode;
+    if (test->operand <= 0xFF) {
+        machine.memory[0x8001] = test->operand;
     } else {
-        machine.memory[0x8001] = test.operand & 0xFF;
-        machine.memory[0x8002] = test.operand >> 8;
+        machine.memory[0x8001] = test->operand & 0xFF;
+        machine.memory[0x8002] = test->operand >> 8;
     }
 
     // Set up memory
-    for (u8 i = 0; i < test.initial_memory_length; i++) {
-        MemoryEntry op = test.initial_memory[i];
+    for (u8 i = 0; i < test->initial_memory_length; i++) {
+        MemoryEntry op = test->initial_memory[i];
         machine.memory[op.address] = op.value;
     }
 
@@ -310,7 +334,7 @@ i32 main(int argc, char** argv) {
     b8 passed = true;
 
     // Check registers
-    CPU expected = test.expected_cpu;
+    CPU expected = test->expected_cpu;
     if (!(cpu.a == expected.a &&
         cpu.x == expected.x &&
         cpu.y == expected.y &&
@@ -321,8 +345,8 @@ i32 main(int argc, char** argv) {
     }
 
     // Check relevant memory
-    for (u8 i = 0; i < test.expected_memory_length; i++) {
-        MemoryEntry entry = test.expected_memory[i];
+    for (u8 i = 0; i < test->expected_memory_length; i++) {
+        MemoryEntry entry = test->expected_memory[i];
         if (machine.memory[entry.address] != entry.value) {
             passed = false;
             printf("ERR: Memory\n");
@@ -331,14 +355,14 @@ i32 main(int argc, char** argv) {
     }
 
     // Check memory operations
-    if (test.memory_ops_length != machine.mem_op_i) {
+    if (test->memory_ops_length != machine.mem_op_i) {
         passed = false;
         printf("ERR: Memory op\n");
-        printf("Expecetd: %d ops, performed: %d ops\n", test.memory_ops_length, machine.mem_op_i);
+        printf("Expecetd: %d ops, performed: %d ops\n", test->memory_ops_length, machine.mem_op_i);
     }
 
-    for (u8 i = 0; i < test.memory_ops_length; i++) {
-        MemoryOp expected_op = test.memory_ops[i];
+    for (u8 i = 0; i < test->memory_ops_length; i++) {
+        MemoryOp expected_op = test->memory_ops[i];
         MemoryOp actual_op = machine.mem_ops[i];
         if (memcmp(&expected_op, &actual_op, sizeof(MemoryOp)) != 0) {
             passed = false;
@@ -357,7 +381,23 @@ i32 main(int argc, char** argv) {
         }
     }
 
-    printf("%d\n", passed);
+    printf("%.*s: %s\n", test->name_length, test->name, passed ? "Passed" : "Failed");
+}
+
+i32 main(int argc, char** argv) {
+    if (argc != 2) {
+        fprintf(stderr, "Usage: %s [ROM_FILE]\n", argv[0]);
+        return 1;
+    }
+
+    u16 count = 0;
+    load_test_file(argv[1], &count, NULL);
+    TestCase tests[8] = {0};
+    load_test_file(argv[1], &count, tests);
+
+    for (u16 i = 0; i < count; i++) {
+        run_test(&tests[i]);
+    }
 
     return 0;
 
@@ -389,6 +429,6 @@ i32 main(int argc, char** argv) {
     //         fprintf(stderr, "ERR: Break flag set in CPU.");
     //     }
     // }
-
-    return machine.result;
+    //
+    // return machine.result;
 }

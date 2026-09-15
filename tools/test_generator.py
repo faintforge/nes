@@ -63,8 +63,10 @@ class TestCase:
         self.memory_ops = memory_ops.copy()
         self.cycles = cycles
 
-    def generate_test_bin(self):
+    def generate_test_bin(self) -> bytearray:
         data = bytearray()
+        data += struct.pack("<B", len(self.name))
+        data += struct.pack(f"<{len(self.name)}s", self.name.encode())
         data += struct.pack("<B", self.opcode)
         data += struct.pack("<H", self.operand)
         data += self.cpu_initial.pack()
@@ -196,6 +198,8 @@ def get_operand_read(value: int, mode: str, x: int, y: int) -> Operand:
 # addr  -> value
 
 def lda_test(instructions):
+    tests = []
+
     for mode, opcode in instructions["LDA"].items():
         value = 42
         x = 0xFF
@@ -211,7 +215,6 @@ def lda_test(instructions):
             pc=0x8000,
             memory=address.memory.copy() | operand.memory
         )
-        print(initial.memory)
 
         initial.memory[initial.pc] = opcode
         memory_ops = [MemoryOp(MemoryOpType.READ, initial.pc, opcode)]
@@ -235,10 +238,14 @@ def lda_test(instructions):
             cpu_expected=expected,
             memory_ops=memory_ops,
         )
+        tests.append(case)
 
-        with open(f"tests/{case.name}.bin", "wb") as f:
-            bin = case.generate_test_bin()
-            f.write(bin)
+    data = bytearray()
+    data += struct.pack("<H", len(tests))
+    for test in tests:
+        data += test.generate_test_bin()
+    with open(f"tests/bigBoy.bin", "wb") as f:
+        f.write(data)
 
 def build_instruction_table() -> dict[str, int]:
     instructions = {}
