@@ -359,6 +359,33 @@ static void op_ror(CPU* cpu, Op op) {
     }
 }
 
+static void op_and(CPU* cpu, Op op) {
+    u16 addr = get_address(cpu, op.addr_mode, false);
+    cpu->a &= cpu_read(cpu, addr);
+    cpu_set_zero_negative(cpu, cpu->a);
+}
+
+static void op_ora(CPU* cpu, Op op) {
+    u16 addr = get_address(cpu, op.addr_mode, false);
+    cpu->a |= cpu_read(cpu, addr);
+    cpu_set_zero_negative(cpu, cpu->a);
+}
+
+static void op_eor(CPU* cpu, Op op) {
+    u16 addr = get_address(cpu, op.addr_mode, false);
+    cpu->a ^= cpu_read(cpu, addr);
+    cpu_set_zero_negative(cpu, cpu->a);
+}
+
+static void op_bit(CPU* cpu, Op op) {
+    u16 addr = get_address(cpu, op.addr_mode, false);
+    u8 value = cpu_read(cpu, addr);
+    u8 bitmask = cpu->a & value;
+    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, bitmask == 0);
+    cpu_set_status_flag(cpu, CPU_STATUS_OVERFLOW, get_bit(bitmask, 6));
+    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(bitmask, 7));
+}
+
 static void op_jsr(CPU* cpu, Op op) {
     u16 addr = get_address(cpu, op.addr_mode, false);
 
@@ -455,6 +482,20 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
             break;
         case OP_ROR:
             op_ror(cpu, op);
+            break;
+
+        // Bitwise
+        case OP_AND:
+            op_and(cpu, op);
+            break;
+        case OP_ORA:
+            op_ora(cpu, op);
+            break;
+        case OP_EOR:
+            op_eor(cpu, op);
+            break;
+        case OP_BIT:
+            op_bit(cpu, op);
             break;
 
         // Arithmetic
