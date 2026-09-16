@@ -94,7 +94,7 @@ class AddressResolver:
             case "abs": return AddressResolver.absolute(operand)
             case "abs,X": return AddressResolver.absolute_x(operand, x)
             case "abs,Y": return AddressResolver.absolute_y(operand, y)
-            case "(ind)": return AddressResolver.indirect(operand, y, indirect_base_address)
+            case "(ind)": return AddressResolver.indirect(operand, indirect_base_address)
             case "(ind,X)": return AddressResolver.indexed_indirect(operand, x, indirect_base_address)
             case "(ind),Y": return AddressResolver.indirect_indexed(operand, y, indirect_base_address)
             case "rel": return ResolvedAddress(None)
@@ -153,7 +153,7 @@ class AddressResolver:
         })
 
     @staticmethod
-    def indirect_indexed(operand: int, y: int, indirect_base_address: int) -> int:
+    def indirect_indexed(operand: int, y: int, indirect_base_address: int) -> ResolvedAddress:
         low_addr = operand
         high_addr = (operand+1) & 0xFF
         low = indirect_base_address & 0xFF
@@ -169,31 +169,20 @@ class AddressResolver:
 @dataclass
 class Operand:
     # Absolutely terrible name but it'll work
-    operand: int
+    encoded: int
     length: int
     indirect_address: int = 0
     memory: dict[int, int] = field(default_factory=dict)
 
-def get_operand_read(value: int, mode: str, x: int, y: int) -> Operand:
+def get_operand(value: int|None, mode: str, x: int, y: int) -> Operand:
     match mode:
         case "A": return None
-        case "#imm": return Operand(value, 1)
-        case "zpg": return Operand(0xB2, 1, memory={0xB2: value})
-        case "zpg,X": return Operand(0xB1, 1, memory={(0xB1+x) & 0xFF: value})
-        case "zpg,Y": return Operand(0xB4, 1, memory={(0xB4+y) & 0xFF: value})
-        case "abs": return Operand(0x0B3F, 2, memory={0x0B3F: value})
-        case "abs,X": return Operand(0x0B3F, 2, memory={0x0B3F+x: value})
-        case "abs,Y": return Operand(0x0B3F, 2, memory={0x0B3F+y: value})
-        case "(ind)": return Operand(0xC1, 1, memory={0x0B3F: value}, indirect_address=0x0B3F)
-        case "(ind,X)": return Operand(0x03, 1, memory={0x0B3F: value}, indirect_address=0x0B3F)
-        case "(ind),Y": return Operand(0xC4, 1, memory={0x0B3F+y: value}, indirect_address=0x0B3F)
-        case "rel": raise NotImplementedError()
-        case "": return None
-
-def get_operand_write(mode: str, x: int, y: int) -> Operand:
-    match mode:
-        case "A": return None
-        case "#imm": raise Exception("Write instructions shouldn't be able to use immediate addressing")
+        case "#imm":
+            # Write instructions should pass None as their value
+            if value == None:
+                raise Exception("Write instructions shouldn't be able to use immediate addressing")
+            else:
+                return Operand(value, 1)
         case "zpg": return Operand(0xB2, 1)
         case "zpg,X": return Operand(0xB1, 1)
         case "zpg,Y": return Operand(0xB4, 1)
@@ -220,8 +209,8 @@ def lda_test(instructions) -> list[TestCase]:
         value = 42
         x = 0xFF
         y = 0xB1
-        operand = get_operand_read(value, mode, x, y)
-        address = AddressResolver.resolve_mode(mode, operand.operand, x, y, indirect_base_address=operand.indirect_address)
+        operand = get_operand(value, mode, x, y)
+        address = AddressResolver.resolve_mode(mode, operand.encoded, x, y, indirect_base_address=operand.indirect_address)
         initial = CPU(
             a=0,
             x=x,
@@ -235,13 +224,14 @@ def lda_test(instructions) -> list[TestCase]:
         initial.memory[initial.pc] = opcode
         memory_ops = [MemoryOp(MemoryOpType.READ, initial.pc, opcode)]
         for i in range(operand.length):
-            initial.memory[initial.pc+1+i] = (operand.operand >> (8*i)) & 0xFF
+            initial.memory[initial.pc+1+i] = (operand.encoded >> (8*i)) & 0xFF
             memory_ops.append(MemoryOp(
                     MemoryOpType.READ,
                     initial.pc+i+1,
-                    (operand.operand >> (8*i)) & 0xFF))
+                    (operand.encoded >> (8*i)) & 0xFF))
         memory_ops += address.memory_ops
         if address.address != None:
+            initial.memory[address.address] = value
             memory_ops.append(MemoryOp(MemoryOpType.READ, address.address, value))
 
         expected = replace(initial, a=value, pc=initial.pc+operand.length+1)
@@ -265,8 +255,8 @@ def sta_test(instructions) -> list[TestCase]:
         value = 42
         x = 0xFF
         y = 0xB1
-        operand = get_operand_write(mode, x, y)
-        address = AddressResolver.resolve_mode(mode, operand.operand, x, y, indirect_base_address=operand.indirect_address)
+        operand = get_operand(None, mode, x, y)
+        address = AddressResolver.resolve_mode(mode, operand.encoded, x, y, indirect_base_address=operand.indirect_address)
         initial = CPU(
             a=value,
             x=x,
@@ -280,11 +270,11 @@ def sta_test(instructions) -> list[TestCase]:
         initial.memory[initial.pc] = opcode
         memory_ops = [MemoryOp(MemoryOpType.READ, initial.pc, opcode)]
         for i in range(operand.length):
-            initial.memory[initial.pc+1+i] = (operand.operand >> (8*i)) & 0xFF
+            initial.memory[initial.pc+1+i] = (operand.encoded >> (8*i)) & 0xFF
             memory_ops.append(MemoryOp(
                     MemoryOpType.READ,
                     initial.pc+i+1,
-                    (operand.operand >> (8*i)) & 0xFF))
+                    (operand.encoded >> (8*i)) & 0xFF))
         memory_ops += address.memory_ops
         memory_ops.append(MemoryOp(MemoryOpType.WRITE, address.address, value))
 
