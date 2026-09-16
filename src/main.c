@@ -347,9 +347,12 @@ void run_test(const TestCase* test) {
     // Check relevant memory
     for (u8 i = 0; i < test->expected_memory_length; i++) {
         MemoryEntry entry = test->expected_memory[i];
-        if (machine.memory[entry.address] != entry.value) {
+        u8 value = machine.memory[entry.address];
+        if (value != entry.value) {
             passed = false;
-            printf("ERR: Memory\n");
+            printf("ERR: Memory: Expected: $%04X=%d ($%02X), found: $%04X=%d ($%02X)\n",
+                    entry.address, entry.value, entry.value,
+                    entry.address, value, value);
             break;
         }
     }
@@ -357,8 +360,7 @@ void run_test(const TestCase* test) {
     // Check memory operations
     if (test->memory_ops_length != machine.mem_op_i) {
         passed = false;
-        printf("ERR: Memory op\n");
-        printf("Expecetd: %d ops, performed: %d ops\n", test->memory_ops_length, machine.mem_op_i);
+        printf("ERR: Memory op: Expecetd: %d ops, performed: %d ops\n", test->memory_ops_length, machine.mem_op_i);
     }
 
     for (u8 i = 0; i < test->memory_ops_length; i++) {
@@ -367,12 +369,12 @@ void run_test(const TestCase* test) {
         if (memcmp(&expected_op, &actual_op, sizeof(MemoryOp)) != 0) {
             passed = false;
             printf("ERR: Memory op\n");
-            printf("Expected: %s, $%04X, %d ($%d)\n",
+            printf("Expected: %s, $%04X, %d ($%02X)\n",
                     expected_op.type ? "write" : "read",
                     expected_op.address,
                     expected_op.value,
                     expected_op.value);
-            printf("Performed: %s, $%04X, %d ($%d)\n",
+            printf("Performed: %s, $%04X, %d ($%02X)\n",
                     actual_op.type ? "write" : "read",
                     actual_op.address,
                     actual_op.value,
@@ -392,43 +394,14 @@ i32 main(int argc, char** argv) {
 
     u16 count = 0;
     load_test_file(argv[1], &count, NULL);
-    TestCase tests[8] = {0};
+    TestCase* tests = malloc(count*sizeof(TestCase));
     load_test_file(argv[1], &count, tests);
 
     for (u16 i = 0; i < count; i++) {
         run_test(&tests[i]);
     }
 
-    return 0;
+    free(tests);
 
-    // TestingMachine machine = {
-    //     .running = true,
-    // };
-    // MemoryBus bus = {
-    //     .ctx = &machine,
-    //     .read = bus_read,
-    //     .write = bus_write,
-    // };
-    // machine.cpu = cpu_init(bus);
-    // if (!load_rom(&machine, argv[1])) {
-    //     return 1;
-    // }
-    //
-    // cpu_reset(&machine.cpu);
-    // while (machine.running) {
-    //     u16 addr = machine.cpu.pc;
-    //     u8 opcode = bus_read(&bus, addr);
-    //
-    //     u8 cycles = cpu_step(&machine.cpu);
-    //
-    //     printf("%04X:    ", addr);
-    //     pretty_print_opcode(opcode);
-    //     printf("\tcycles: %u\n", cycles);
-    //
-    //     if ((machine.cpu.p & CPU_STATUS_BREAK) != 0) {
-    //         fprintf(stderr, "ERR: Break flag set in CPU.");
-    //     }
-    // }
-    //
-    // return machine.result;
+    return 0;
 }

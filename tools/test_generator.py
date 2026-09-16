@@ -190,6 +190,22 @@ def get_operand_read(value: int, mode: str, x: int, y: int) -> Operand:
         case "rel": raise NotImplementedError()
         case "": return None
 
+def get_operand_write(mode: str, x: int, y: int) -> Operand:
+    match mode:
+        case "A": return None
+        case "#imm": raise Exception("Write instructions shouldn't be able to use immediate addressing")
+        case "zpg": return Operand(0xB2, 1)
+        case "zpg,X": return Operand(0xB1, 1)
+        case "zpg,Y": return Operand(0xB4, 1)
+        case "abs": return Operand(0x0B3F, 2)
+        case "abs,X": return Operand(0x0B3F, 2)
+        case "abs,Y": return Operand(0x0B3F, 2)
+        case "(ind)": return Operand(0xC1, 1, indirect_address=0x0B3F)
+        case "(ind,X)": return Operand(0x03, 1, indirect_address=0x0B3F)
+        case "(ind),Y": return Operand(0xC4, 1, indirect_address=0x0B3F)
+        case "rel": raise NotImplementedError()
+        case "": return None
+
 # Indirect indexed: 
 # opcode
 # zpg address
@@ -197,7 +213,7 @@ def get_operand_read(value: int, mode: str, x: int, y: int) -> Operand:
 # zpg+1 -> high addr
 # addr  -> value
 
-def lda_test(instructions):
+def lda_test(instructions) -> list[TestCase]:
     tests = []
 
     for mode, opcode in instructions["LDA"].items():
@@ -240,12 +256,52 @@ def lda_test(instructions):
         )
         tests.append(case)
 
-    data = bytearray()
-    data += struct.pack("<H", len(tests))
-    for test in tests:
-        data += test.generate_test_bin()
-    with open(f"tests/bigBoy.bin", "wb") as f:
-        f.write(data)
+    return tests
+
+def sta_test(instructions) -> list[TestCase]:
+    tests = []
+
+    for mode, opcode in instructions["STA"].items():
+        value = 42
+        x = 0xFF
+        y = 0xB1
+        operand = get_operand_write(mode, x, y)
+        address = AddressResolver.resolve_mode(mode, operand.operand, x, y, indirect_base_address=operand.indirect_address)
+        initial = CPU(
+            a=value,
+            x=x,
+            y=y,
+            s=0xFF,
+            p=0,
+            pc=0x8000,
+            memory=address.memory.copy() | operand.memory
+        )
+
+        initial.memory[initial.pc] = opcode
+        memory_ops = [MemoryOp(MemoryOpType.READ, initial.pc, opcode)]
+        for i in range(operand.length):
+            initial.memory[initial.pc+1+i] = (operand.operand >> (8*i)) & 0xFF
+            memory_ops.append(MemoryOp(
+                    MemoryOpType.READ,
+                    initial.pc+i+1,
+                    (operand.operand >> (8*i)) & 0xFF))
+        memory_ops += address.memory_ops
+        memory_ops.append(MemoryOp(MemoryOpType.WRITE, address.address, value))
+
+        expected = replace(initial, pc=initial.pc+operand.length+1)
+        expected.memory[address.address] = value
+
+        case = TestCase(
+            name=f"STA {mode}",
+            opcode=opcode,
+            operand=value,
+            cpu_initial=initial,
+            cpu_expected=expected,
+            memory_ops=memory_ops,
+        )
+        tests.append(case)
+
+    return tests
 
 def build_instruction_table() -> dict[str, int]:
     instructions = {}
@@ -257,7 +313,17 @@ def build_instruction_table() -> dict[str, int]:
 
 def main():
     instructions = build_instruction_table()
-    lda_test(instructions)
+
+    tests = []
+    tests += lda_test(instructions)
+    tests += sta_test(instructions)
+
+    data = bytearray()
+    data += struct.pack("<H", len(tests))
+    for test in tests:
+        data += test.generate_test_bin()
+    with open("tests/bigboy.bin", "wb") as f:
+        f.write(data)
 
 if __name__ == "__main__":
     main()
