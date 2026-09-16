@@ -395,6 +395,13 @@ static void op_cmp(CPU* cpu, Op op, u8 reg) {
     cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(reg - value, 7));
 }
 
+static void op_branch(CPU* cpu, Op op, u8 flag, b8 is_set) {
+    u16 addr = get_address(cpu, op.addr_mode, false);
+    if (cpu_get_status_flag(cpu, flag) == is_set) {
+        cpu->pc = addr;
+    }
+}
+
 static void op_jsr(CPU* cpu, Op op) {
     u16 addr = get_address(cpu, op.addr_mode, false);
 
@@ -516,6 +523,32 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
             break;
         case OP_CPY:
             op_cmp(cpu, op, cpu->y);
+            break;
+
+        // Branch
+        case OP_BCC:
+            op_branch(cpu, op, CPU_STATUS_CARRY, false);
+            break;
+        case OP_BCS:
+            op_branch(cpu, op, CPU_STATUS_CARRY, true);
+            break;
+        case OP_BEQ:
+            op_branch(cpu, op, CPU_STATUS_ZERO, true);
+            break;
+        case OP_BNE:
+            op_branch(cpu, op, CPU_STATUS_ZERO, false);
+            break;
+        case OP_BPL:
+            op_branch(cpu, op, CPU_STATUS_NEGATIVE, false);
+            break;
+        case OP_BMI:
+            op_branch(cpu, op, CPU_STATUS_NEGATIVE, true);
+            break;
+        case OP_BVC:
+            op_branch(cpu, op, CPU_STATUS_OVERFLOW, false);
+            break;
+        case OP_BVS:
+            op_branch(cpu, op, CPU_STATUS_OVERFLOW, true);
             break;
 
         // Arithmetic
