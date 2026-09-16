@@ -150,7 +150,7 @@ void bus_write(MemoryBus* bus, u16 address, u8 value) {
             case 0x4000:
                 memset(machine->memory, 0, 0x8000);
                 CPU* cpu = &machine->cpu;
-                cpu->p = CPU_STATUS_INTERRUPT_DISABLE;
+                cpu->p = FLAG_INTERRUPT_DISABLE;
                 cpu->a = 0;
                 cpu->x = 0;
                 cpu->y = 0;

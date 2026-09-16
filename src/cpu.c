@@ -26,8 +26,8 @@ static inline b8 cpu_get_status_flag(CPU* cpu, u8 flag) {
 }
 
 static inline void cpu_set_zero_negative(CPU* cpu, u8 value) {
-    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, value == 0);
-    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(value, 7));
+    cpu_set_status_flag(cpu, FLAG_ZERO, value == 0);
+    cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(value, 7));
 }
 
 // =============================================================================
@@ -82,7 +82,7 @@ CPU cpu_init(MemoryBus bus) {
         .y = 0,
         .pc = 0xFFFC,
         .s = 0,
-        .p = CPU_STATUS_INTERRUPT_DISABLE,
+        .p = FLAG_INTERRUPT_DISABLE,
     };
 
     return cpu;
@@ -90,7 +90,7 @@ CPU cpu_init(MemoryBus bus) {
 
 void cpu_reset(CPU* cpu) {
     cpu->pc = 0xFFFC;
-    cpu_set_status_flag(cpu, CPU_STATUS_INTERRUPT_DISABLE, true);
+    cpu_set_status_flag(cpu, FLAG_INTERRUPT_DISABLE, true);
 
     // TODO: Make cpu reset and actual interrupt.
 
@@ -214,13 +214,13 @@ static void op_adc(CPU* cpu, Op op) {
         u16 addr = get_address(cpu, op.addr_mode, false);
         memory = cpu_read(cpu, addr);
     }
-    u16 result = (u16) cpu->a + memory + cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
+    u16 result = (u16) cpu->a + memory + cpu_get_status_flag(cpu, FLAG_CARRY);
 
     // Taken straight from nesdev.org
     b8 overflow = ((result^cpu->a) & (result^memory) & 0x80) != 0;
 
-    cpu_set_status_flag(cpu, CPU_STATUS_CARRY, result > 0xFF);
-    cpu_set_status_flag(cpu, CPU_STATUS_OVERFLOW, overflow);
+    cpu_set_status_flag(cpu, FLAG_CARRY, result > 0xFF);
+    cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
     cpu_set_zero_negative(cpu, result);
 
     cpu->a = result;
@@ -235,11 +235,11 @@ static void op_sbc(CPU* cpu, Op op) {
         memory = cpu_read(cpu, addr);
     }
     // www.nesdev.org/wiki/Instruction_reference#SBC
-    u8 result = cpu->a - memory - cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
+    u8 result = cpu->a - memory - cpu_get_status_flag(cpu, FLAG_CARRY);
     b8 overflow = ((result^cpu->a) & (result^memory) & 0x80) != 0;
 
-    cpu_set_status_flag(cpu, CPU_STATUS_CARRY, (i8) result < 0x00);
-    cpu_set_status_flag(cpu, CPU_STATUS_OVERFLOW, overflow);
+    cpu_set_status_flag(cpu, FLAG_CARRY, (i8) result < 0x00);
+    cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
     cpu_set_zero_negative(cpu, result);
 
     cpu->a = result;
@@ -271,7 +271,7 @@ static void op_asl(CPU* cpu, Op op) {
     if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
         b8 carry = get_bit(cpu->a, 7);
         cpu->a <<= 1;
-        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, carry);
+        cpu_set_status_flag(cpu, FLAG_CARRY, carry);
         cpu_set_zero_negative(cpu, cpu->a);
 
         cpu->cycle++;
@@ -284,7 +284,7 @@ static void op_asl(CPU* cpu, Op op) {
         value <<= 1;
         cpu_write(cpu, addr, value);
 
-        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, carry);
+        cpu_set_status_flag(cpu, FLAG_CARRY, carry);
         cpu_set_zero_negative(cpu, value);
     }
 }
@@ -293,7 +293,7 @@ static void op_lsr(CPU* cpu, Op op) {
     if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
         b8 carry = get_bit(cpu->a, 0);
         cpu->a >>= 1;
-        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, carry);
+        cpu_set_status_flag(cpu, FLAG_CARRY, carry);
         cpu_set_zero_negative(cpu, cpu->a);
 
         cpu->cycle++;
@@ -306,7 +306,7 @@ static void op_lsr(CPU* cpu, Op op) {
         value >>= 1;
         cpu_write(cpu, addr, value);
 
-        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, carry);
+        cpu_set_status_flag(cpu, FLAG_CARRY, carry);
         cpu_set_zero_negative(cpu, value);
     }
 }
@@ -314,9 +314,9 @@ static void op_lsr(CPU* cpu, Op op) {
 static void op_rol(CPU* cpu, Op op) {
     if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
         b8 new_carry = get_bit(cpu->a, 7);
-        b8 old_carry = cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
+        b8 old_carry = cpu_get_status_flag(cpu, FLAG_CARRY);
         cpu->a = (cpu->a << 1) | old_carry;
-        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, new_carry);
+        cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
         cpu_set_zero_negative(cpu, cpu->a);
 
         cpu->cycle++;
@@ -324,13 +324,13 @@ static void op_rol(CPU* cpu, Op op) {
         u16 addr = get_address(cpu, op.addr_mode, true);
         u8 value = cpu_read(cpu, addr);
 
-        b8 old_carry = cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
+        b8 old_carry = cpu_get_status_flag(cpu, FLAG_CARRY);
         u8 result = (value << 1) | old_carry;
 
         cpu_write(cpu, addr, value);
         cpu_write(cpu, addr, result);
 
-        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, get_bit(value, 7));
+        cpu_set_status_flag(cpu, FLAG_CARRY, get_bit(value, 7));
         cpu_set_zero_negative(cpu, result);
     }
 }
@@ -338,9 +338,9 @@ static void op_rol(CPU* cpu, Op op) {
 static void op_ror(CPU* cpu, Op op) {
     if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
         b8 new_carry = get_bit(cpu->a, 0);
-        b8 old_carry = cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
+        b8 old_carry = cpu_get_status_flag(cpu, FLAG_CARRY);
         cpu->a = (cpu->a >> 1) | (old_carry << 7);
-        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, new_carry);
+        cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
         cpu_set_zero_negative(cpu, cpu->a);
 
         cpu->cycle++;
@@ -348,13 +348,13 @@ static void op_ror(CPU* cpu, Op op) {
         u16 addr = get_address(cpu, op.addr_mode, true);
         u8 value = cpu_read(cpu, addr);
 
-        b8 old_carry = cpu_get_status_flag(cpu, CPU_STATUS_CARRY);
+        b8 old_carry = cpu_get_status_flag(cpu, FLAG_CARRY);
         u8 result = (value >> 1) | (old_carry << 7);
 
         cpu_write(cpu, addr, value);
         cpu_write(cpu, addr, result);
 
-        cpu_set_status_flag(cpu, CPU_STATUS_CARRY, get_bit(value, 0));
+        cpu_set_status_flag(cpu, FLAG_CARRY, get_bit(value, 0));
         cpu_set_zero_negative(cpu, result);
     }
 }
@@ -381,18 +381,18 @@ static void op_bit(CPU* cpu, Op op) {
     u16 addr = get_address(cpu, op.addr_mode, false);
     u8 value = cpu_read(cpu, addr);
     u8 bitmask = cpu->a & value;
-    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, bitmask == 0);
-    cpu_set_status_flag(cpu, CPU_STATUS_OVERFLOW, get_bit(bitmask, 6));
-    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(bitmask, 7));
+    cpu_set_status_flag(cpu, FLAG_ZERO, bitmask == 0);
+    cpu_set_status_flag(cpu, FLAG_OVERFLOW, get_bit(bitmask, 6));
+    cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(bitmask, 7));
 }
 
 static void op_cmp(CPU* cpu, Op op, u8 reg) {
     u16 addr = get_address(cpu, op.addr_mode, false);
     u8 value = cpu_read(cpu, addr);
 
-    cpu_set_status_flag(cpu, CPU_STATUS_CARRY, reg >= value);
-    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, reg == value);
-    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(reg - value, 7));
+    cpu_set_status_flag(cpu, FLAG_CARRY, reg >= value);
+    cpu_set_status_flag(cpu, FLAG_ZERO, reg == value);
+    cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(reg - value, 7));
 }
 
 static void op_branch(CPU* cpu, Op op, u8 flag, b8 is_set) {
@@ -426,14 +426,14 @@ static void op_brk(CPU* cpu, Op op) {
     u8 pc_low = (cpu->pc + 1) & 0xFF;
     stack_push(cpu, pc_high);
     stack_push(cpu, pc_low);
-    stack_push(cpu, cpu->p | CPU_STATUS_BREAK | CPU_STATUS__EXPANSION);
+    stack_push(cpu, cpu->p | FLAG_BREAK | FLAG__EXPANSION);
 
     // Interrupt vector
     u8 handler_addr_low = cpu_read(cpu, 0xFFFE);
     u8 handler_addr_high = cpu_read(cpu, 0xFFFF);
     cpu->pc = ((u16) handler_addr_high << 8) | (handler_addr_low);
 
-    cpu_set_status_flag(cpu, CPU_STATUS_INTERRUPT_DISABLE, true);
+    cpu_set_status_flag(cpu, FLAG_INTERRUPT_DISABLE, true);
 }
 
 // Implied addressing always incur an extra cycle.
@@ -527,28 +527,28 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
 
         // Branch
         case OP_BCC:
-            op_branch(cpu, op, CPU_STATUS_CARRY, false);
+            op_branch(cpu, op, FLAG_CARRY, false);
             break;
         case OP_BCS:
-            op_branch(cpu, op, CPU_STATUS_CARRY, true);
+            op_branch(cpu, op, FLAG_CARRY, true);
             break;
         case OP_BEQ:
-            op_branch(cpu, op, CPU_STATUS_ZERO, true);
+            op_branch(cpu, op, FLAG_ZERO, true);
             break;
         case OP_BNE:
-            op_branch(cpu, op, CPU_STATUS_ZERO, false);
+            op_branch(cpu, op, FLAG_ZERO, false);
             break;
         case OP_BPL:
-            op_branch(cpu, op, CPU_STATUS_NEGATIVE, false);
+            op_branch(cpu, op, FLAG_NEGATIVE, false);
             break;
         case OP_BMI:
-            op_branch(cpu, op, CPU_STATUS_NEGATIVE, true);
+            op_branch(cpu, op, FLAG_NEGATIVE, true);
             break;
         case OP_BVC:
-            op_branch(cpu, op, CPU_STATUS_OVERFLOW, false);
+            op_branch(cpu, op, FLAG_OVERFLOW, false);
             break;
         case OP_BVS:
-            op_branch(cpu, op, CPU_STATUS_OVERFLOW, true);
+            op_branch(cpu, op, FLAG_OVERFLOW, true);
             break;
 
         // Arithmetic
@@ -610,7 +610,7 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
         case OP_RTI: {
             implied_addressing(cpu, op);
             u8 status = stack_pop(cpu);
-            status &= ~(CPU_STATUS_BREAK | CPU_STATUS__EXPANSION);
+            status &= ~(FLAG_BREAK | FLAG__EXPANSION);
             cpu->p = status;
 
             // Yet again another cycle because the parallel fetch and decode
@@ -636,13 +636,13 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
             break;
         case OP_PHP:
             implied_addressing(cpu, op);
-            stack_push(cpu, cpu->p | CPU_STATUS_BREAK | CPU_STATUS__EXPANSION);
+            stack_push(cpu, cpu->p | FLAG_BREAK | FLAG__EXPANSION);
             break;
         case OP_PLP: {
             implied_addressing(cpu, op);
             u8 stack_p = stack_pop(cpu);
-            u8 old_interrupt_flag = cpu->p & CPU_STATUS_INTERRUPT_DISABLE;
-            cpu->p = (stack_p & ~CPU_STATUS_INTERRUPT_DISABLE) | old_interrupt_flag;
+            u8 old_interrupt_flag = cpu->p & FLAG_INTERRUPT_DISABLE;
+            cpu->p = (stack_p & ~FLAG_INTERRUPT_DISABLE) | old_interrupt_flag;
             // TODO: Delay setting interrupt flag by one cycle because of
             // interrupt polling.
         } break;
@@ -658,31 +658,31 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
         // Flags
         case OP_CLC:
             implied_addressing(cpu, op);
-            cpu->p &= ~CPU_STATUS_CARRY;
+            cpu->p &= ~FLAG_CARRY;
             break;
         case OP_SEC:
             implied_addressing(cpu, op);
-            cpu->p |= CPU_STATUS_CARRY;
+            cpu->p |= FLAG_CARRY;
             break;
         case OP_CLI:
             implied_addressing(cpu, op);
-            cpu->p &= ~CPU_STATUS_INTERRUPT_DISABLE;
+            cpu->p &= ~FLAG_INTERRUPT_DISABLE;
             break;
         case OP_SEI:
             implied_addressing(cpu, op);
-            cpu->p |= CPU_STATUS_INTERRUPT_DISABLE;
+            cpu->p |= FLAG_INTERRUPT_DISABLE;
             break;
         case OP_CLD:
             implied_addressing(cpu, op);
-            cpu->p &= ~CPU_STATUS_DECIMAL;
+            cpu->p &= ~FLAG_DECIMAL;
             break;
         case OP_SED:
             implied_addressing(cpu, op);
-            cpu->p |= CPU_STATUS_DECIMAL;
+            cpu->p |= FLAG_DECIMAL;
             break;
         case OP_CLV:
             implied_addressing(cpu, op);
-            cpu->p &= ~CPU_STATUS_OVERFLOW;
+            cpu->p &= ~FLAG_OVERFLOW;
             break;
 
         // Other
