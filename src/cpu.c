@@ -386,6 +386,15 @@ static void op_bit(CPU* cpu, Op op) {
     cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(bitmask, 7));
 }
 
+static void op_cmp(CPU* cpu, Op op, u8 reg) {
+    u16 addr = get_address(cpu, op.addr_mode, false);
+    u8 value = cpu_read(cpu, addr);
+
+    cpu_set_status_flag(cpu, CPU_STATUS_CARRY, reg >= value);
+    cpu_set_status_flag(cpu, CPU_STATUS_ZERO, reg == value);
+    cpu_set_status_flag(cpu, CPU_STATUS_NEGATIVE, get_bit(reg - value, 7));
+}
+
 static void op_jsr(CPU* cpu, Op op) {
     u16 addr = get_address(cpu, op.addr_mode, false);
 
@@ -496,6 +505,17 @@ static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
             break;
         case OP_BIT:
             op_bit(cpu, op);
+            break;
+
+        // Compare
+        case OP_CMP:
+            op_cmp(cpu, op, cpu->a);
+            break;
+        case OP_CPX:
+            op_cmp(cpu, op, cpu->x);
+            break;
+        case OP_CPY:
+            op_cmp(cpu, op, cpu->y);
             break;
 
         // Arithmetic
