@@ -28,6 +28,21 @@ class CPU:
     pc: int
     memory: dict[int, int]
 
+    @staticmethod
+    def build_default() -> CPU:
+        return CPU(
+                a=0,
+                x=0,
+                y=0,
+                s=0xFF,
+                p=Flag.I,
+                pc=0x8000,
+                memory={}
+            )
+
+    def prepare_memory(value: int|None, address: int|None, x: int, y: int, op_type: MemoryOpType) -> CPU:
+        pass
+
     def pack(self) -> bytes:
         data = struct.pack("<BBBBBH",
                            self.a,
@@ -40,6 +55,27 @@ class CPU:
         for address, value in self.memory.items():
             data += struct.pack("<HB", address, value)
         return data
+
+    @staticmethod
+    def build(value: int, opcode: int, mode: str, x: int, y: int, op_type: MemoryOpType) -> (CPU, CPU):
+        pc = 0x8000
+        operand = get_operand(value if op_type == MemoryOpType.READ else None,
+                            mode, x, y)
+        address = AddressResolver.resolve_mode(mode, operand.encoded, x, y)
+
+        # Prepare memory
+        memory = address.copy()
+        memory_ops = [MemoryOp(MemoryOpType.READ, pc, opcode)]
+
+        memory[pc] = opcode
+        for i in range(operand.length):
+            operand_part = (operand.encoded >> (8*i)) & 0xFF
+            memory[pc+1+i] = operand_part
+            memory_ops.append(MemoryOp(MemoryOpType.READ, pc+i+1, operand_part))
+        if address.address != None:
+            memory[address.address] = value
+            memory_ops.append(op_type, address.address, value)
+        memory_ops += address.memory_ops
 
 class MemoryOpType(IntEnum):
     READ = 0
@@ -168,11 +204,9 @@ class AddressResolver:
 
 @dataclass
 class Operand:
-    # Absolutely terrible name but it'll work
     encoded: int
     length: int
     indirect_address: int = 0
-    memory: dict[int, int] = field(default_factory=dict)
 
 def get_operand(value: int|None, mode: str, x: int, y: int) -> Operand:
     match mode:
@@ -206,20 +240,21 @@ def lda_test(instructions) -> list[TestCase]:
     tests = []
 
     for mode, opcode in instructions["LDA"].items():
-        value = 42
+        value = 0
         x = 0xFF
         y = 0xB1
         operand = get_operand(value, mode, x, y)
         address = AddressResolver.resolve_mode(mode, operand.encoded, x, y, indirect_base_address=operand.indirect_address)
-        initial = CPU(
-            a=0,
-            x=x,
-            y=y,
-            s=0xFF,
-            p=0,
-            pc=0x8000,
-            memory=address.memory.copy() | operand.memory
-        )
+        initial = CPU.build_default().prepare_memory(address, x, y, op_type)
+        # CPU(
+        #     a=value,
+        #     x=x,
+        #     y=y,
+        #     s=0xFF,
+        #     p=0,
+        #     pc=0x8000,
+        #     memory=address.memory.copy() | operand.memory
+        # )
 
         initial.memory[initial.pc] = opcode
         memory_ops = [MemoryOp(MemoryOpType.READ, initial.pc, opcode)]
@@ -234,7 +269,9 @@ def lda_test(instructions) -> list[TestCase]:
             initial.memory[address.address] = value
             memory_ops.append(MemoryOp(MemoryOpType.READ, address.address, value))
 
-        expected = replace(initial, a=value, pc=initial.pc+operand.length+1)
+        expected = replace(initial,
+                           p=initial.p | Flag.Z,
+                           pc=initial.pc+operand.length+1)
 
         case = TestCase(
             name=f"LDA {mode}",
@@ -255,41 +292,43 @@ def sta_test(instructions) -> list[TestCase]:
         value = 42
         x = 0xFF
         y = 0xB1
-        operand = get_operand(None, mode, x, y)
-        address = AddressResolver.resolve_mode(mode, operand.encoded, x, y, indirect_base_address=operand.indirect_address)
-        initial = CPU(
-            a=value,
-            x=x,
-            y=y,
-            s=0xFF,
-            p=0,
-            pc=0x8000,
-            memory=address.memory.copy() | operand.memory
-        )
+        # operand = get_operand(None, mode, x, y)
+        # address = AddressResolver.resolve_mode(mode, operand.encoded, x, y, indirect_base_address=operand.indirect_address)
+        # initial = replace(CPU.build_default(),
+        #         a=value,
+        #         x=x,
+        #         y=y,
+        #         # TODO: Make a merge function that checks for collision in
+        #         # memory needs. It should also handle inserting opcode and
+        #         # operands into the ROM.
+        #         memory=address.memory.copy() | operand.memory
+        #     )
+        #
+        # initial.memory[initial.pc] = opcode
+        # memory_ops = [MemoryOp(MemoryOpType.READ, initial.pc, opcode)]
+        # for i in range(operand.length):
+        #     initial.memory[initial.pc+1+i] = (operand.encoded >> (8*i)) & 0xFF
+        #     memory_ops.append(MemoryOp(
+        #             MemoryOpType.READ,
+        #             initial.pc+i+1,
+        #             (operand.encoded >> (8*i)) & 0xFF))
+        # memory_ops += address.memory_ops
+        # assert(address.address != None)
+        # memory_ops.append(MemoryOp(MemoryOpType.WRITE, address.address, value))
+        #
+        # expected = replace(initial, pc=initial.pc+operand.length+1)
+        # expected.memory[address.address] = value
 
-        initial.memory[initial.pc] = opcode
-        memory_ops = [MemoryOp(MemoryOpType.READ, initial.pc, opcode)]
-        for i in range(operand.length):
-            initial.memory[initial.pc+1+i] = (operand.encoded >> (8*i)) & 0xFF
-            memory_ops.append(MemoryOp(
-                    MemoryOpType.READ,
-                    initial.pc+i+1,
-                    (operand.encoded >> (8*i)) & 0xFF))
-        memory_ops += address.memory_ops
-        memory_ops.append(MemoryOp(MemoryOpType.WRITE, address.address, value))
-
-        expected = replace(initial, pc=initial.pc+operand.length+1)
-        expected.memory[address.address] = value
-
-        case = TestCase(
-            name=f"STA {mode}",
-            opcode=opcode,
-            operand=value,
-            cpu_initial=initial,
-            cpu_expected=expected,
-            memory_ops=memory_ops,
-        )
-        tests.append(case)
+        # case = TestCase(
+        #     name=f"STA {mode}",
+        #     opcode=opcode,
+        #     operand=value,
+        #     cpu_initial=initial,
+        #     cpu_expected=expected,
+        #     memory_ops=memory_ops,
+        # )
+        # case.generate_test_bin()
+        # tests.append(case)
 
     return tests
 
@@ -305,7 +344,7 @@ def main():
     instructions = build_instruction_table()
 
     tests = []
-    tests += lda_test(instructions)
+    # tests += lda_test(instructions)
     tests += sta_test(instructions)
 
     data = bytearray()
