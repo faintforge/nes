@@ -23,10 +23,19 @@ struct MemoryBus {
     void* ctx;
 };
 
+enum {
+    WRITE,
+    READ,
+};
+
 typedef struct CPU CPU;
 struct CPU {
     MemoryBus bus;
+    u8 bus_mode; // r/w
+    u16 address_bus;
+    u8 data_bus;
 
+    // Registers
     u8 a;
     u8 x;
     u8 y;
@@ -34,13 +43,24 @@ struct CPU {
     u8 s;
     u8 p;
 
+    // Instruction register
+    u8 ir;
+    // Where in the instruction are we? t0 is always fetch the opcode
+    u8 t;
+    // Where data is stored between cycles. Eg: ADL in absolute addressing while
+    // fetching ADH.
+    u8 internal_data;
+    // Check to see if internal arithmetic caused a wrap around. Eg: indexed
+    // absolute addressing crossing page boundary.
+    u8 internal_carry;
+
     u64 cycle;
 };
 
 extern CPU cpu_init(MemoryBus bus);
 extern void cpu_reset(CPU* cpu);
 
-extern u8 cpu_step(CPU* cpu);
+extern void cpu_step(CPU* cpu);
 
 extern void cpu_irq(CPU* cpu);
 extern void cpu_nmi(CPU* cpu);

@@ -31,23 +31,20 @@ static inline void cpu_set_zero_negative(CPU* cpu, u8 value) {
 }
 
 // =============================================================================
-// Memory operation helpers 
+// Memory operation helpers
 // =============================================================================
 
+static void cpu_advance(CPU* cpu) {
+    cpu->pc++;
+    cpu->address_bus = cpu->pc;
+    cpu->bus_mode = READ;
+}
+
 static u8 cpu_read(CPU* cpu, u16 address) {
-    cpu->cycle++;
-    return cpu->bus.read(&cpu->bus, address);
 }
 
 static void cpu_write(CPU* cpu, u16 address, u8 value) {
-    cpu->cycle++;
     cpu->bus.write(&cpu->bus, address, value);
-}
-
-static u8 cpu_fetch(CPU* cpu) {
-    u8 data = cpu_read(cpu, cpu->pc);
-    cpu->pc++;
-    return data;
 }
 
 static void stack_push(CPU* cpu, u8 value) {
@@ -88,621 +85,299 @@ CPU cpu_init(MemoryBus bus) {
     return cpu;
 }
 
-void cpu_reset(CPU* cpu) {
-    cpu->pc = 0xFFFC;
-    cpu_set_status_flag(cpu, FLAG_INTERRUPT_DISABLE, true);
+// void step_address_mode(CPU* cpu, Op op, u8 data) {
+//     switch (op.addr_mode) {
+//         case ADDR_MODE_ACCUMULATOR:
+//             break;
+//         case ADDR_MODE_IMMEDIATE:
+//             assert(cpu->bus_mode == READ);
+//             break;
+//         case ADDR_MODE_ZERO_PAGE:
+//             break;
+//         case ADDR_MODE_ZERO_PAGE_X:
+//             break;
+//         case ADDR_MODE_ZERO_PAGE_Y:
+//             break;
+//         case ADDR_MODE_ABSOLUTE:
+//             break;
+//         case ADDR_MODE_ABSOLUTE_X:
+//             break;
+//         case ADDR_MODE_ABSOLUTE_Y:
+//             break;
+//         case ADDR_MODE_INDIRECT:
+//             break;
+//         case ADDR_MODE_INDIRECT_X:
+//             break;
+//         case ADDR_MODE_INDIRECT_Y:
+//             break;
+//         case ADDR_MODE_RELATIVE:
+//             break;
+//         case ADDR_MODE_IMPLIED:
+//             break;
+//         default:
+//             UNREACHABLE();
+//     }
+// }
 
-    // TODO: Make cpu reset and actual interrupt.
+void op_ld(CPU* cpu, Op op, u8* reg) {
+    assert(op.type == OP_LDA);
+    assert(cpu->t > 0);
+    assert(cpu->bus_mode == READ);
 
-    // We pop three times because this is a specialiced interrupt.
-    for (u8 i = 0; i < 3; i++) {
-        stack_pop(cpu);
-    }
-
-    u8 pc_low = cpu_fetch(cpu);
-    u8 pc_high = cpu_fetch(cpu);
-    cpu->pc = (u16) (pc_high << 8) | pc_low;
-}
-
-static Op opcode_decode(u8 opcode) {
-    return OPCODE_TABLE[opcode];
-}
-
-static u16 get_address(CPU* cpu, AddrMode mode, b8 always_oops) {
-    // Implementation details can be found in chapter 6 of the programmers manual
-    // for the 6502.
-
-    switch (mode) {
-        case ADDR_MODE_ACCUMULATOR:
-            break;
+    switch (op.addr_mode) {
         case ADDR_MODE_IMMEDIATE:
+            assert(cpu->t == 1);
+            *reg = cpu->data_bus;
+            cpu_set_zero_negative(cpu, *reg);
+
+            cpu_advance(cpu);
+            cpu->t = 0;
             break;
         case ADDR_MODE_ZERO_PAGE:
-            return cpu_fetch(cpu);
+            assert(cpu->t >= 1 && cpu->t <= 2);
+            // t1: Read effective address
+            if (cpu->t == 1) {
+                cpu->address_bus = cpu->data_bus;
+                cpu->t++;
+            }
+            // t2: Read data
+            else if (cpu->t == 2) {
+                *reg = cpu->data_bus;
+                cpu_set_zero_negative(cpu, *reg);
+
+                cpu_advance(cpu);
+                cpu->t = 0;
+            }
+            break;
         case ADDR_MODE_ZERO_PAGE_X:
-            // Oops cycle
-            cpu->cycle++;
-            return (cpu_fetch(cpu) + cpu->x) & 0xFF;
-        case ADDR_MODE_ZERO_PAGE_Y:
-            // Oops cycle
-            cpu->cycle++;
-            return (cpu_fetch(cpu) + cpu->y) & 0xFF;
-        case ADDR_MODE_ABSOLUTE: {
-            u8 low = cpu_fetch(cpu);
-            u16 high = cpu_fetch(cpu);
-            return (high << 8) | low;
-         }
-        case ADDR_MODE_ABSOLUTE_X: {
-            u8 low = cpu_fetch(cpu);
-            u16 high = cpu_fetch(cpu);
-            // Oops cycle
-            if (always_oops || (u16) low + cpu->x > 0xFF) {
-                cpu->cycle++;
+            assert(cpu->t >= 1 && cpu->t <= 3);
+            // Read effective address
+            if (cpu->t == 1) {
+                cpu->address_bus = cpu->data_bus;
+                cpu->t++;
             }
-            return ((high << 8) | low) + cpu->x;
-         }
-        case ADDR_MODE_ABSOLUTE_Y: {
-            u8 low = cpu_fetch(cpu);
-            u16 high = cpu_fetch(cpu);
-            // Oops cycle
-            if (always_oops || (u16) low + cpu->y > 0xFF) {
-                cpu->cycle++;
+            // Read data (discarded)
+            else if (cpu->t == 2) {
+                u16 effective_address = cpu->address_bus + cpu->x;
+                // Wrap at page boundary
+                effective_address &= 0xFF;
+                cpu->address_bus = effective_address;
+
+                cpu->t++;
             }
-            return ((high << 8) | low) + cpu->y;
-        }
-        case ADDR_MODE_INDIRECT: {
-            u8 zero_page_addr = cpu_fetch(cpu);
-            u8 low = cpu_read(cpu, zero_page_addr);
-            u16 high = cpu_read(cpu, zero_page_addr+1);
-            return ((high << 8) | low);
-        }
-        case ADDR_MODE_INDIRECT_X: {
-            u8 zero_page_addr = cpu_fetch(cpu);
-            u8 low = cpu_read(cpu, (zero_page_addr + cpu->x) & 0xFF);
-            u16 high = cpu_read(cpu, (zero_page_addr + cpu->x + 1) & 0xFF);
-            // Always add and oops cycle because otherwise the next instruction
-            // could read the wrong address on the wrong page while the ALU
-            // fixes the page overflow.
-            cpu->cycle++;
-            return ((high << 8) | low);
-        }
-        case ADDR_MODE_INDIRECT_Y: {
-            u8 zero_page_addr = cpu_fetch(cpu);
-            u8 low = cpu_read(cpu, zero_page_addr);
-            u16 high = cpu_read(cpu, zero_page_addr + 1);
-            // Oops cycle
-            if (always_oops || (u16) low + cpu->y > 0xFF) {
-                cpu->cycle++;
+            // Read data
+            else if (cpu->t == 3) {
+                *reg = cpu->data_bus;
+                cpu_set_zero_negative(cpu, *reg);
+
+                cpu_advance(cpu);
+                cpu->t = 0;
             }
-            return ((high << 8) | low) + cpu->y;
-        }
-        case ADDR_MODE_RELATIVE: {
-            i8 offset = cpu_fetch(cpu);
-            return cpu->pc + offset;
-        }
-        case ADDR_MODE_IMPLIED:
+            break;
+        case ADDR_MODE_ABSOLUTE:
+            assert(cpu->t >= 1 && cpu->t <= 3);
+            // t1: read addres low
+            if (cpu->t == 1) {
+                cpu->internal_data = cpu->data_bus;
+                cpu_advance(cpu);
+                cpu->t++;
+            }
+            // t2: read address high
+            else if (cpu->t == 2) {
+                u8 low = cpu->internal_data;
+                u16 high = cpu->data_bus;
+                cpu->address_bus = (high << 8) | low;
+                cpu->t++;
+            } else if (cpu->t == 3) {
+                *reg = cpu->data_bus;
+                cpu_set_zero_negative(cpu, *reg);
+
+                cpu_advance(cpu);
+                cpu->t = 0;
+            }
+            break;
+        case ADDR_MODE_ABSOLUTE_X:
+            assert(cpu->t >= 1 && cpu->t <= 4);
+            // t1: read addres low
+            if (cpu->t == 1) {
+                cpu->internal_data = cpu->data_bus;
+                cpu_advance(cpu);
+                cpu->t++;
+            }
+            // t2: read address high
+            else if (cpu->t == 2) {
+                u16 low = cpu->internal_data + cpu->x;
+                u16 high = cpu->data_bus;
+                cpu->internal_carry = low > 0xFF;
+                cpu->address_bus = (high << 8) | (low & 0xFF);
+                cpu->t++;
+            } else if (cpu->t == 3) {
+                if (cpu->internal_carry == 0) {
+                    *reg = cpu->data_bus;
+                    cpu_set_zero_negative(cpu, *reg);
+                    cpu_advance(cpu);
+                    cpu->t = 0;
+                } else {
+                    // Add one page to address
+                    cpu->address_bus += 0x0100;
+                    cpu->t++;
+                }
+            } else if (cpu->t == 4) {
+                *reg = cpu->data_bus;
+                cpu_set_zero_negative(cpu, *reg);
+                cpu_advance(cpu);
+                cpu->t = 0;
+            }
+            break;
+        case ADDR_MODE_ABSOLUTE_Y:
+            assert(cpu->t >= 1 && cpu->t <= 4);
+            // t1: read addres low
+            if (cpu->t == 1) {
+                cpu->internal_data = cpu->data_bus;
+                cpu_advance(cpu);
+                cpu->t++;
+            }
+            // t2: read address high
+            else if (cpu->t == 2) {
+                u16 low = cpu->internal_data + cpu->y;
+                cpu->internal_carry = low > 0xFF;
+                u16 high = cpu->data_bus;
+                cpu->address_bus = (high << 8) | (low & 0xFF);
+                cpu->t++;
+            } else if (cpu->t == 3) {
+                if (cpu->internal_carry == 0) {
+                    *reg = cpu->data_bus;
+                    cpu_set_zero_negative(cpu, *reg);
+                    cpu_advance(cpu);
+                    cpu->t = 0;
+                } else {
+                    // Add one page to address
+                    cpu->address_bus += 0x0100;
+                    cpu->t++;
+                }
+            } else if (cpu->t == 4) {
+                *reg = cpu->data_bus;
+                cpu_set_zero_negative(cpu, *reg);
+                cpu_advance(cpu);
+                cpu->t = 0;
+            }
+            break;
+        case ADDR_MODE_INDIRECT_X:
+            assert(cpu->t >= 1 && cpu->t <= 5);
+            // t1: read zpg address
+            if (cpu->t == 1) {
+                cpu->address_bus = cpu->data_bus;
+                cpu->t++;
+            }
+            // t2: read data (discarded)
+            else if (cpu->t == 2) {
+                cpu->address_bus += cpu->x;
+                // Page wrapping
+                cpu->address_bus &= 0xFF;
+                cpu->t++;
+            }
+            // t3: read adl
+            else if (cpu->t == 3) {
+                cpu->internal_data = cpu->data_bus;
+                cpu->address_bus += 1;
+                // Page wrapping
+                cpu->address_bus &= 0xFF;
+                cpu->t++;
+            }
+            // t4: read adh
+            else if (cpu->t == 4) {
+                u8 low = cpu->internal_data;
+                u16 high = cpu->data_bus;
+                cpu->address_bus = (high << 8) | low;
+                cpu->t++;
+            }
+            // t5: read data
+            else if (cpu->t == 5) {
+                *reg = cpu->data_bus;
+                cpu_set_zero_negative(cpu, *reg);
+                cpu_advance(cpu);
+                cpu->t = 0;
+            }
+            break;
+        case ADDR_MODE_INDIRECT_Y:
+            assert(cpu->t >= 1 && cpu->t <= 5);
+            // t1: read zpg address
+            if (cpu->t == 1) {
+                cpu->address_bus = cpu->data_bus;
+                cpu->t++;
+            }
+            // t2: read adl
+            else if (cpu->t == 2) {
+                cpu->internal_data = cpu->data_bus;
+                cpu->address_bus++;
+                cpu->address_bus &= 0xFF;
+                cpu->t++;
+            }
+            // t3: read adh
+            else if (cpu->t == 3) {
+                cpu->address_bus += 1;
+                // Page wrapping
+                cpu->address_bus &= 0xFF;
+                u16 low = cpu->internal_data + cpu->y;
+                u16 high = cpu->data_bus;
+                cpu->internal_carry = low > 0xFF;
+                cpu->address_bus = (high << 8) | (low & 0xFF);
+                cpu->t++;
+            }
+            // t4: read data
+            else if (cpu->t == 4) {
+                if (cpu->internal_carry == 0) {
+                    *reg = cpu->data_bus;
+                    cpu_set_zero_negative(cpu, *reg);
+                    cpu_advance(cpu);
+                    cpu->t = 0;
+                } else {
+                    cpu->address_bus += 0x0100;
+                    cpu->t++;
+                }
+            }
+            // t5: read data (page-boundary crossed)
+            else if (cpu->t == 5) {
+                *reg = cpu->data_bus;
+                cpu_set_zero_negative(cpu, *reg);
+                cpu_advance(cpu);
+                cpu->t = 0;
+            }
             break;
     }
-
-    fprintf(stderr, "ERR: %s(): Addressing mode %s not allowed.\n", __func__, addr_mode_enum_string(mode));
-    exit(1);
 }
 
-static void op_ld(CPU* cpu, Op op, u8* reg) {
-    assert(reg != NULL);
-    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
-        *reg = cpu_fetch(cpu);
-    } else {
-        u16 addr = get_address(cpu, op.addr_mode, false);
-        *reg = cpu_read(cpu, addr);
+void cpu_step(CPU* cpu) {
+    // First phase of a cycle is always a memory operation.
+    switch (cpu->bus_mode) {
+        case READ:
+            cpu->data_bus = cpu->bus.read(&cpu->bus, cpu->address_bus);
+            break;
+        case WRITE:
+            cpu->bus.write(&cpu->bus, cpu->address_bus, cpu->data_bus);
+            break;
+        default:
+            UNREACHABLE();
     }
 
-    cpu_set_zero_negative(cpu, *reg);
-}
-
-static void op_st(CPU* cpu, Op op, u8* reg) {
-    assert(reg != NULL);
-    u16 addr = get_address(cpu, op.addr_mode, true);
-    cpu_write(cpu, addr, *reg);
-}
-
-static void op_adc(CPU* cpu, Op op) {
-    u8 memory = -1;
-    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
-        memory = cpu_fetch(cpu);
-    } else {
-        u16 addr = get_address(cpu, op.addr_mode, false);
-        memory = cpu_read(cpu, addr);
+    // t0: Fetch new opcode
+    if (cpu->t == 0) {
+        assert(cpu->bus_mode == READ);
+        cpu->ir = cpu->data_bus;
+        cpu_advance(cpu);
+        cpu->t++;
+        return;
     }
-    u16 result = (u16) cpu->a + memory + cpu_get_status_flag(cpu, FLAG_CARRY);
 
-    // Taken straight from nesdev.org
-    b8 overflow = ((result^cpu->a) & (result^memory) & 0x80) != 0;
-
-    cpu_set_status_flag(cpu, FLAG_CARRY, result > 0xFF);
-    cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
-    cpu_set_zero_negative(cpu, result);
-
-    cpu->a = result;
-}
-
-static void op_sbc(CPU* cpu, Op op) {
-    u8 memory = -1;
-    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
-        memory = cpu_fetch(cpu);
-    } else {
-        u16 addr = get_address(cpu, op.addr_mode, false);
-        memory = cpu_read(cpu, addr);
-    }
-    // www.nesdev.org/wiki/Instruction_reference#SBC
-    u8 result = cpu->a - memory - cpu_get_status_flag(cpu, FLAG_CARRY);
-    b8 overflow = ((result^cpu->a) & (result^memory) & 0x80) != 0;
-
-    cpu_set_status_flag(cpu, FLAG_CARRY, (i8) result < 0x00);
-    cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
-    cpu_set_zero_negative(cpu, result);
-
-    cpu->a = result;
-}
-
-static void op_inc(CPU* cpu, Op op) {
-    u16 addr = get_address(cpu, op.addr_mode, true);
-    u8 memory = cpu_read(cpu, addr);
-    // Don't know why it does this extra write, but it does.
-    cpu_write(cpu, addr, memory);
-    memory++;
-    cpu_write(cpu, addr, memory);
-
-    cpu_set_zero_negative(cpu, memory);
-}
-
-static void op_dec(CPU* cpu, Op op) {
-    u16 addr = get_address(cpu, op.addr_mode, true);
-    u8 memory = cpu_read(cpu, addr);
-    // Don't know why it does this extra write, but it does.
-    cpu_write(cpu, addr, memory);
-    memory--;
-    cpu_write(cpu, addr, memory);
-
-    cpu_set_zero_negative(cpu, memory);
-}
-
-static void op_asl(CPU* cpu, Op op) {
-    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
-        b8 carry = get_bit(cpu->a, 7);
-        cpu->a <<= 1;
-        cpu_set_status_flag(cpu, FLAG_CARRY, carry);
-        cpu_set_zero_negative(cpu, cpu->a);
-
-        cpu->cycle++;
-    } else {
-        u16 addr = get_address(cpu, op.addr_mode, true);
-        u8 value = cpu_read(cpu, addr);
-        b8 carry = get_bit(value, 7);
-
-        cpu_write(cpu, addr, value);
-        value <<= 1;
-        cpu_write(cpu, addr, value);
-
-        cpu_set_status_flag(cpu, FLAG_CARRY, carry);
-        cpu_set_zero_negative(cpu, value);
-    }
-}
-
-static void op_lsr(CPU* cpu, Op op) {
-    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
-        b8 carry = get_bit(cpu->a, 0);
-        cpu->a >>= 1;
-        cpu_set_status_flag(cpu, FLAG_CARRY, carry);
-        cpu_set_zero_negative(cpu, cpu->a);
-
-        cpu->cycle++;
-    } else {
-        u16 addr = get_address(cpu, op.addr_mode, true);
-        u8 value = cpu_read(cpu, addr);
-        b8 carry = get_bit(value, 0);
-
-        cpu_write(cpu, addr, value);
-        value >>= 1;
-        cpu_write(cpu, addr, value);
-
-        cpu_set_status_flag(cpu, FLAG_CARRY, carry);
-        cpu_set_zero_negative(cpu, value);
-    }
-}
-
-static void op_rol(CPU* cpu, Op op) {
-    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
-        b8 new_carry = get_bit(cpu->a, 7);
-        b8 old_carry = cpu_get_status_flag(cpu, FLAG_CARRY);
-        cpu->a = (cpu->a << 1) | old_carry;
-        cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
-        cpu_set_zero_negative(cpu, cpu->a);
-
-        cpu->cycle++;
-    } else {
-        u16 addr = get_address(cpu, op.addr_mode, true);
-        u8 value = cpu_read(cpu, addr);
-
-        b8 old_carry = cpu_get_status_flag(cpu, FLAG_CARRY);
-        u8 result = (value << 1) | old_carry;
-
-        cpu_write(cpu, addr, value);
-        cpu_write(cpu, addr, result);
-
-        cpu_set_status_flag(cpu, FLAG_CARRY, get_bit(value, 7));
-        cpu_set_zero_negative(cpu, result);
-    }
-}
-
-static void op_ror(CPU* cpu, Op op) {
-    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
-        b8 new_carry = get_bit(cpu->a, 0);
-        b8 old_carry = cpu_get_status_flag(cpu, FLAG_CARRY);
-        cpu->a = (cpu->a >> 1) | (old_carry << 7);
-        cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
-        cpu_set_zero_negative(cpu, cpu->a);
-
-        cpu->cycle++;
-    } else {
-        u16 addr = get_address(cpu, op.addr_mode, true);
-        u8 value = cpu_read(cpu, addr);
-
-        b8 old_carry = cpu_get_status_flag(cpu, FLAG_CARRY);
-        u8 result = (value >> 1) | (old_carry << 7);
-
-        cpu_write(cpu, addr, value);
-        cpu_write(cpu, addr, result);
-
-        cpu_set_status_flag(cpu, FLAG_CARRY, get_bit(value, 0));
-        cpu_set_zero_negative(cpu, result);
-    }
-}
-
-static void op_and(CPU* cpu, Op op) {
-    u16 addr = get_address(cpu, op.addr_mode, false);
-    cpu->a &= cpu_read(cpu, addr);
-    cpu_set_zero_negative(cpu, cpu->a);
-}
-
-static void op_ora(CPU* cpu, Op op) {
-    u16 addr = get_address(cpu, op.addr_mode, false);
-    cpu->a |= cpu_read(cpu, addr);
-    cpu_set_zero_negative(cpu, cpu->a);
-}
-
-static void op_eor(CPU* cpu, Op op) {
-    u16 addr = get_address(cpu, op.addr_mode, false);
-    cpu->a ^= cpu_read(cpu, addr);
-    cpu_set_zero_negative(cpu, cpu->a);
-}
-
-static void op_bit(CPU* cpu, Op op) {
-    u16 addr = get_address(cpu, op.addr_mode, false);
-    u8 value = cpu_read(cpu, addr);
-    u8 bitmask = cpu->a & value;
-    cpu_set_status_flag(cpu, FLAG_ZERO, bitmask == 0);
-    cpu_set_status_flag(cpu, FLAG_OVERFLOW, get_bit(bitmask, 6));
-    cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(bitmask, 7));
-}
-
-static void op_cmp(CPU* cpu, Op op, u8 reg) {
-    u16 addr = get_address(cpu, op.addr_mode, false);
-    u8 value = cpu_read(cpu, addr);
-
-    cpu_set_status_flag(cpu, FLAG_CARRY, reg >= value);
-    cpu_set_status_flag(cpu, FLAG_ZERO, reg == value);
-    cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(reg - value, 7));
-}
-
-static void op_branch(CPU* cpu, Op op, u8 flag, b8 is_set) {
-    u16 addr = get_address(cpu, op.addr_mode, false);
-    if (cpu_get_status_flag(cpu, flag) == is_set) {
-        cpu->pc = addr;
-    }
-}
-
-static void op_jsr(CPU* cpu, Op op) {
-    u16 addr = get_address(cpu, op.addr_mode, false);
-
-    // Perform an extra cycle to put the low byte of the new address onto the
-    // address bus.
-    cpu->cycle++;
-
-    // Make sure to push *after* reading the next two bytes.
-    // Subtract one because RTS increments pc by 1.
-    u8 pc_high = (cpu->pc - 1) >> 8;
-    u8 pc_low = (cpu->pc - 1) & 0xFF;
-    stack_push(cpu, pc_high);
-    stack_push(cpu, pc_low);
-
-    cpu->pc = addr;
-}
-
-static void op_brk(CPU* cpu, Op op) {
-    (void) op;
-
-    u8 pc_high = (cpu->pc + 1) >> 8;
-    u8 pc_low = (cpu->pc + 1) & 0xFF;
-    stack_push(cpu, pc_high);
-    stack_push(cpu, pc_low);
-    stack_push(cpu, cpu->p | FLAG_BREAK | FLAG__EXPANSION);
-
-    // Interrupt vector
-    u8 handler_addr_low = cpu_read(cpu, 0xFFFE);
-    u8 handler_addr_high = cpu_read(cpu, 0xFFFF);
-    cpu->pc = ((u16) handler_addr_high << 8) | (handler_addr_low);
-
-    cpu_set_status_flag(cpu, FLAG_INTERRUPT_DISABLE, true);
-}
-
-// Implied addressing always incur an extra cycle.
-static inline void implied_addressing(CPU* cpu, Op op) {
-    assert(op.addr_mode == ADDR_MODE_IMPLIED);
-    cpu->cycle++;
-}
-
-static void cpu_execute(CPU* cpu, Op op, u8 opcode) {
+    // Step instruction
+    Op op = OPCODE_TABLE[cpu->ir];
     switch (op.type) {
-        // Access
         case OP_LDA:
             op_ld(cpu, op, &cpu->a);
             break;
-        case OP_STA:
-            op_st(cpu, op, &cpu->a);
-            break;
-        case OP_LDX:
-            op_ld(cpu, op, &cpu->x);
-            break;
-        case OP_STX:
-            op_st(cpu, op, &cpu->x);
-            break;
-        case OP_LDY:
-            op_ld(cpu, op, &cpu->y);
-            break;
-        case OP_STY:
-            op_st(cpu, op, &cpu->y);
-            break;
-
-        // Transfer
-        case OP_TAX:
-            implied_addressing(cpu, op);
-            cpu->x = cpu->a;
-            cpu_set_zero_negative(cpu, cpu->x);
-            break;
-        case OP_TXA:
-            implied_addressing(cpu, op);
-            cpu->a = cpu->x;
-            cpu_set_zero_negative(cpu, cpu->a);
-            break;
-        case OP_TAY:
-            implied_addressing(cpu, op);
-            cpu->y = cpu->a;
-            cpu_set_zero_negative(cpu, cpu->y);
-            break;
-        case OP_TYA:
-            implied_addressing(cpu, op);
-            cpu->a = cpu->y;
-            cpu_set_zero_negative(cpu, cpu->a);
-            break;
-
-        // Shift
-        case OP_ASL:
-            op_asl(cpu, op);
-            break;
-        case OP_LSR:
-            op_lsr(cpu, op);
-            break;
-        case OP_ROL:
-            op_rol(cpu, op);
-            break;
-        case OP_ROR:
-            op_ror(cpu, op);
-            break;
-
-        // Bitwise
-        case OP_AND:
-            op_and(cpu, op);
-            break;
-        case OP_ORA:
-            op_ora(cpu, op);
-            break;
-        case OP_EOR:
-            op_eor(cpu, op);
-            break;
-        case OP_BIT:
-            op_bit(cpu, op);
-            break;
-
-        // Compare
-        case OP_CMP:
-            op_cmp(cpu, op, cpu->a);
-            break;
-        case OP_CPX:
-            op_cmp(cpu, op, cpu->x);
-            break;
-        case OP_CPY:
-            op_cmp(cpu, op, cpu->y);
-            break;
-
-        // Branch
-        case OP_BCC:
-            op_branch(cpu, op, FLAG_CARRY, false);
-            break;
-        case OP_BCS:
-            op_branch(cpu, op, FLAG_CARRY, true);
-            break;
-        case OP_BEQ:
-            op_branch(cpu, op, FLAG_ZERO, true);
-            break;
-        case OP_BNE:
-            op_branch(cpu, op, FLAG_ZERO, false);
-            break;
-        case OP_BPL:
-            op_branch(cpu, op, FLAG_NEGATIVE, false);
-            break;
-        case OP_BMI:
-            op_branch(cpu, op, FLAG_NEGATIVE, true);
-            break;
-        case OP_BVC:
-            op_branch(cpu, op, FLAG_OVERFLOW, false);
-            break;
-        case OP_BVS:
-            op_branch(cpu, op, FLAG_OVERFLOW, true);
-            break;
-
-        // Arithmetic
-        case OP_ADC:
-            op_adc(cpu, op);
-            break;
-        case OP_SBC:
-            op_sbc(cpu, op);
-            break;
-        case OP_INC:
-            op_inc(cpu, op);
-            break;
-        case OP_DEC:
-            op_dec(cpu, op);
-            break;
-        case OP_INX:
-            implied_addressing(cpu, op);
-            cpu->x++;
-            cpu_set_zero_negative(cpu, cpu->x);
-            break;
-        case OP_DEX:
-            implied_addressing(cpu, op);
-            cpu->x--;
-            cpu_set_zero_negative(cpu, cpu->x);
-            break;
-        case OP_INY:
-            implied_addressing(cpu, op);
-            cpu->y++;
-            cpu_set_zero_negative(cpu, cpu->y);
-            break;
-        case OP_DEY:
-            implied_addressing(cpu, op);
-            cpu->y--;
-            cpu_set_zero_negative(cpu, cpu->y);
-            break;
-
-        // Jump
-        case OP_JMP: {
-            u16 addr = get_address(cpu, op.addr_mode, false);
-            cpu->pc = addr;
-        } break;
-        case OP_JSR:
-            op_jsr(cpu, op);
-            break;
-        case OP_RTS: {
-            implied_addressing(cpu, op);
-            u8 addr_low = stack_pop(cpu);
-            u8 addr_high = stack_pop(cpu);
-            u16 addr = (addr_high << 8) | addr_low;
-            cpu->pc = addr + 1;
-            // Add an extra two cycles because of the parallel fetch decode
-            // shenanigans the 6502 does.
-            cpu->cycle += 2;
-        } break;
-        case OP_BRK:
-            implied_addressing(cpu, op);
-            op_brk(cpu, op);
-            break;
-        case OP_RTI: {
-            implied_addressing(cpu, op);
-            u8 status = stack_pop(cpu);
-            status &= ~(FLAG_BREAK | FLAG__EXPANSION);
-            cpu->p = status;
-
-            // Yet again another cycle because the parallel fetch and decode
-            // behavior.
-            cpu->cycle++;
-
-            u8 addr_low = stack_pop(cpu);
-            u8 addr_high = stack_pop(cpu);
-            u16 addr = (addr_high << 8) | addr_low;
-            cpu->pc = addr;
-        } break;
-
-        // Stack
-        case OP_PHA:
-            implied_addressing(cpu, op);
-            stack_push(cpu, cpu->a);
-            cpu->s--;
-            break;
-        case OP_PLA:
-            implied_addressing(cpu, op);
-            cpu->a = stack_pop(cpu);
-            cpu_set_zero_negative(cpu, cpu->a);
-            break;
-        case OP_PHP:
-            implied_addressing(cpu, op);
-            stack_push(cpu, cpu->p | FLAG_BREAK | FLAG__EXPANSION);
-            break;
-        case OP_PLP: {
-            implied_addressing(cpu, op);
-            u8 stack_p = stack_pop(cpu);
-            u8 old_interrupt_flag = cpu->p & FLAG_INTERRUPT_DISABLE;
-            cpu->p = (stack_p & ~FLAG_INTERRUPT_DISABLE) | old_interrupt_flag;
-            // TODO: Delay setting interrupt flag by one cycle because of
-            // interrupt polling.
-        } break;
-        case OP_TXS:
-            implied_addressing(cpu, op);
-            cpu->s = cpu->x;
-            break;
-        case OP_TSX:
-            implied_addressing(cpu, op);
-            cpu->x = cpu->s;
-            break;
-
-        // Flags
-        case OP_CLC:
-            implied_addressing(cpu, op);
-            cpu->p &= ~FLAG_CARRY;
-            break;
-        case OP_SEC:
-            implied_addressing(cpu, op);
-            cpu->p |= FLAG_CARRY;
-            break;
-        case OP_CLI:
-            implied_addressing(cpu, op);
-            cpu->p &= ~FLAG_INTERRUPT_DISABLE;
-            break;
-        case OP_SEI:
-            implied_addressing(cpu, op);
-            cpu->p |= FLAG_INTERRUPT_DISABLE;
-            break;
-        case OP_CLD:
-            implied_addressing(cpu, op);
-            cpu->p &= ~FLAG_DECIMAL;
-            break;
-        case OP_SED:
-            implied_addressing(cpu, op);
-            cpu->p |= FLAG_DECIMAL;
-            break;
-        case OP_CLV:
-            implied_addressing(cpu, op);
-            cpu->p &= ~FLAG_OVERFLOW;
-            break;
-
-        // Other
-        case OP_NOP:
-            implied_addressing(cpu, op);
-            break;
-
         case OP__UNDEFINED:
-            printf("ERR: Undefined instruction: %02X\n", opcode);
-            exit(1);
-        default:
-            printf("ERR: Unimplemented instruction: %02X\n", opcode);
             exit(1);
     }
-}
 
-u8 cpu_step(CPU* cpu) {
-    u64 start_cycle = cpu->cycle;
-    u8 opcode = cpu_fetch(cpu);
-    Op op = opcode_decode(opcode);;
-    cpu_execute(cpu, op, opcode);
-    return cpu->cycle - start_cycle;
+    cpu->cycle++;
 }

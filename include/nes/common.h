@@ -2,6 +2,7 @@
 #define COMMON_H
 
 #include <stdint.h>
+#include <assert.h>
 
 typedef int8_t  i8;
 typedef int16_t i16;
@@ -32,5 +33,7 @@ typedef u32 b32;
 #endif // NULL
 
 #define get_bit(value, bit_index) (((value) >> (bit_index)) & 1)
+
+#define UNREACHABLE() assert(false && "Unreachable")
 
 #endif // COMMON_H
