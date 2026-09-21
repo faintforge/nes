@@ -465,6 +465,126 @@ void op_dec_register(CPU* cpu, Op op, u8* reg) {
     cpu_advance(cpu);
 }
 
+void op_asl(CPU* cpu, Op op) {
+    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
+        b8 carry = get_bit(cpu->a, 7);
+        cpu->a <<= 1;
+        cpu_set_zero_negative(cpu, cpu->a);
+        cpu_set_status_flag(cpu, FLAG_CARRY, carry);
+        cpu_advance(cpu);
+    } else {
+        if (!cpu_is_addr_ready(cpu)) {
+            step_addressing_mode(cpu, op.addr_mode, WRITE);
+        } else {
+            if (cpu->t == cpu->addr_ready_t + 1) {
+                // cpu->data_bus = cpu->data_bus;
+                cpu->bus_mode = WRITE;
+                cpu->t++;
+            } else if (cpu->t == cpu->addr_ready_t + 2) {
+                cpu->bus_mode = WRITE;
+                b8 carry = get_bit(cpu->data_bus, 7);
+                cpu->data_bus <<= 1;
+                cpu_set_zero_negative(cpu, cpu->data_bus);
+                cpu_set_status_flag(cpu, FLAG_CARRY, carry);
+                cpu->t++;
+            } else if (cpu->t == cpu->addr_ready_t + 3) {
+                cpu_advance(cpu);
+            }
+        }
+    }
+}
+
+void op_lsr(CPU* cpu, Op op) {
+    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
+        b8 carry = cpu->a & 1;
+        cpu->a >>= 1;
+        cpu_set_zero_negative(cpu, cpu->a);
+        cpu_set_status_flag(cpu, FLAG_CARRY, carry);
+        cpu_advance(cpu);
+    } else {
+        if (!cpu_is_addr_ready(cpu)) {
+            step_addressing_mode(cpu, op.addr_mode, WRITE);
+        } else {
+            if (cpu->t == cpu->addr_ready_t + 1) {
+                // cpu->data_bus = cpu->data_bus;
+                cpu->bus_mode = WRITE;
+                cpu->t++;
+            } else if (cpu->t == cpu->addr_ready_t + 2) {
+                cpu->bus_mode = WRITE;
+                b8 carry = cpu->data_bus & 1;
+                cpu->data_bus >>= 1;
+                cpu_set_zero_negative(cpu, cpu->data_bus);
+                cpu_set_status_flag(cpu, FLAG_CARRY, carry);
+                cpu->t++;
+            } else if (cpu->t == cpu->addr_ready_t + 3) {
+                cpu_advance(cpu);
+            }
+        }
+    }
+}
+
+void op_rol(CPU* cpu, Op op) {
+    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
+        u8 carry = cpu_get_status_flag(cpu, FLAG_CARRY);
+        b8 new_carry = get_bit(cpu->a, 7);
+        cpu->a = (cpu->a << 1) | carry;
+        cpu_set_zero_negative(cpu, cpu->a);
+        cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
+        cpu_advance(cpu);
+    } else {
+        if (!cpu_is_addr_ready(cpu)) {
+            step_addressing_mode(cpu, op.addr_mode, WRITE);
+        } else {
+            if (cpu->t == cpu->addr_ready_t + 1) {
+                // cpu->data_bus = cpu->data_bus;
+                cpu->bus_mode = WRITE;
+                cpu->t++;
+            } else if (cpu->t == cpu->addr_ready_t + 2) {
+                cpu->bus_mode = WRITE;
+                u8 carry = cpu_get_status_flag(cpu, FLAG_CARRY);
+                b8 new_carry = get_bit(cpu->data_bus, 7);
+                cpu->data_bus = (cpu->data_bus << 1) | carry;
+                cpu_set_zero_negative(cpu, cpu->data_bus);
+                cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
+                cpu->t++;
+            } else if (cpu->t == cpu->addr_ready_t + 3) {
+                cpu_advance(cpu);
+            }
+        }
+    }
+}
+
+void op_ror(CPU* cpu, Op op) {
+    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
+        u8 carry = cpu_get_status_flag(cpu, FLAG_CARRY);
+        b8 new_carry = cpu->a & 1;
+        cpu->a = (cpu->a >> 1) | (carry << 7);
+        cpu_set_zero_negative(cpu, cpu->a);
+        cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
+        cpu_advance(cpu);
+    } else {
+        if (!cpu_is_addr_ready(cpu)) {
+            step_addressing_mode(cpu, op.addr_mode, WRITE);
+        } else {
+            if (cpu->t == cpu->addr_ready_t + 1) {
+                // cpu->data_bus = cpu->data_bus;
+                cpu->bus_mode = WRITE;
+                cpu->t++;
+            } else if (cpu->t == cpu->addr_ready_t + 2) {
+                cpu->bus_mode = WRITE;
+                u8 carry = cpu_get_status_flag(cpu, FLAG_CARRY);
+                b8 new_carry = cpu->data_bus & 1;
+                cpu->data_bus = (cpu->data_bus >> 1) | (carry << 7);
+                cpu_set_zero_negative(cpu, cpu->data_bus);
+                cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
+                cpu->t++;
+            } else if (cpu->t == cpu->addr_ready_t + 3) {
+                cpu_advance(cpu);
+            }
+        }
+    }
+}
+
 void cpu_step(CPU* cpu) {
     // First phase of a cycle is always a memory operation.
     switch (cpu->bus_mode) {
@@ -550,6 +670,20 @@ void cpu_step(CPU* cpu) {
             break;
         case OP_DEY:
             op_dec_register(cpu, op, &cpu->y);
+            break;
+
+        // Shift
+        case OP_ASL:
+            op_asl(cpu, op);
+            break;
+        case OP_LSR:
+            op_lsr(cpu, op);
+            break;
+        case OP_ROL:
+            op_rol(cpu, op);
+            break;
+        case OP_ROR:
+            op_ror(cpu, op);
             break;
 
         case OP__UNDEFINED:
