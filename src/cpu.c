@@ -26,18 +26,6 @@ static inline b8 cpu_get_status_flag(CPU* cpu, u8 flag) {
 }
 
 
-static inline void cpu_set_internal_status_flag(CPU* cpu, u8 flag, b8 value) {
-    if (value) {
-        cpu->internal_state |= flag;
-    } else {
-        cpu->internal_state &= ~flag;
-    }
-}
-
-static inline b8 cpu_get_internal_status_flag(CPU* cpu, u8 flag) {
-    return (cpu->internal_state & flag) != 0;
-}
-
 static inline void cpu_set_zero_negative(CPU* cpu, u8 value) {
     cpu_set_status_flag(cpu, FLAG_ZERO, value == 0);
     cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(value, 7));
@@ -53,13 +41,18 @@ static void cpu_advance(CPU* cpu) {
     cpu->address_bus = cpu->pc;
     cpu->bus_mode = READ;
     cpu->t = 0;
-    cpu->internal_state = 0;
+    cpu->internal_carry = 0;
+    cpu->addr_ready_t = 0;
 }
 
 // Advance PC only
 static void cpu_advance_pc(CPU* cpu) {
     cpu->pc++;
     cpu->address_bus = cpu->pc;
+}
+
+static b8 cpu_is_addr_ready(CPU* cpu) {
+    return cpu->addr_ready_t != 0;
 }
 
 // static u8 cpu_read(CPU* cpu, u16 address) {
@@ -83,13 +76,23 @@ static void cpu_advance_pc(CPU* cpu) {
 
 
 void print_cpu_status(u8 status) {
-    printf("CPU Status:\n");
-    printf("    C = %d\n", (status >> 0) & 1);
-    printf("    Z = %d\n", (status >> 1) & 1);
-    printf("    I = %d\n", (status >> 2) & 1);
-    printf("    D = %d\n", (status >> 3) & 1);
-    printf("    V = %d\n", (status >> 6) & 1);
-    printf("    N = %d\n", (status >> 7) & 1);
+    const char states[16] = {
+        'c', 'C', // Carry
+        'z', 'Z', // Zero
+        'i', 'I', // Interrupt
+        'd', 'D', // Decimal
+        'b', 'B', // Break
+        '_', '_', // Decimal
+        'v', 'V', // Overflow
+        'n', 'N', // Negative
+    };
+
+    printf("CPU Status: ");
+    for (u8 i = 0; i < 8; i++) {
+        i32 idx = i*2 + ((status >> i) & 1);
+        putchar(states[idx]);
+    }
+    putchar('\n');
 }
 
 CPU cpu_init(MemoryBus bus) {
@@ -110,7 +113,7 @@ CPU cpu_init(MemoryBus bus) {
 
 void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
     assert(cpu->t != 0);
-    if (cpu_get_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE)) {
+    if (cpu_is_addr_ready(cpu)) {
         return;
     }
 
@@ -118,12 +121,16 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
         case ADDR_MODE_ACCUMULATOR:
             UNREACHABLE();
         case ADDR_MODE_IMMEDIATE:
-            UNREACHABLE();
+            cpu->addr_ready_t = cpu->t;
+            cpu->t++;
+            break;
+            // UNREACHABLE();
         case ADDR_MODE_ZERO_PAGE:
             // Read effective address
             if (cpu->t == 1) {
                 cpu->address_bus = cpu->data_bus;
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE, true);
+
+                cpu->addr_ready_t = cpu->t;
                 cpu->t++;
             }
             break;
@@ -140,7 +147,8 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
                 // Wrap at page boundary
                 effective_address &= 0xFF;
                 cpu->address_bus = effective_address;
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE, true);
+
+                cpu->addr_ready_t = cpu->t;
                 cpu->t++;
             }
             break;
@@ -157,7 +165,8 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
                 // Wrap at page boundary
                 effective_address &= 0xFF;
                 cpu->address_bus = effective_address;
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE, true);
+
+                cpu->addr_ready_t = cpu->t;
                 cpu->t++;
             }
             break;
@@ -174,8 +183,9 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
                 u8 low = cpu->internal_data;
                 u16 high = cpu->data_bus;
                 cpu->address_bus = (high << 8) | low;
+
+                cpu->addr_ready_t = cpu->t;
                 cpu->t++;
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE, true);
             }
             break;
         case ADDR_MODE_ABSOLUTE_X:
@@ -190,17 +200,20 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
             else if (cpu->t == 2) {
                 u16 low = cpu->internal_data + cpu->x;
                 u16 high = cpu->data_bus;
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE, low <= 0xFF && bus_op_type == READ);
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_CARRY, low > 0xFF);
+                cpu->internal_carry = low > 0xFF;
                 cpu->address_bus = (high << 8) | (low & 0xFF);
+
+                if (low <= 0xFF) {
+                    cpu->addr_ready_t = cpu->t;
+                }
                 cpu->t++;
             } else if (cpu->t == 3) {
-                if (cpu_get_internal_status_flag(cpu, FLAG_INTERNAL_CARRY)) {
+                if (cpu->internal_carry) {
                     // Add one page to address
                     cpu->address_bus += 0x0100;
                 }
 
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE, true);
+                cpu->addr_ready_t = cpu->t;
                 cpu->t++;
             }
             break;
@@ -216,17 +229,20 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
             else if (cpu->t == 2) {
                 u16 low = cpu->internal_data + cpu->y;
                 u16 high = cpu->data_bus;
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE, low <= 0xFF && bus_op_type == READ);
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_CARRY, low > 0xFF);
+                cpu->internal_carry = low > 0xFF;
                 cpu->address_bus = (high << 8) | (low & 0xFF);
+
+                if (low <= 0xFF && bus_op_type == READ) {
+                    cpu->addr_ready_t = cpu->t;
+                }
                 cpu->t++;
             } else if (cpu->t == 3) {
-                if (cpu_get_internal_status_flag(cpu, FLAG_INTERNAL_CARRY)) {
+                if (cpu->internal_carry) {
                     // Add one page to address
                     cpu->address_bus += 0x0100;
                 }
 
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE, true);
+                cpu->addr_ready_t = cpu->t;
                 cpu->t++;
             }
             break;
@@ -257,9 +273,9 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
                 u8 low = cpu->internal_data;
                 u16 high = cpu->data_bus;
                 cpu->address_bus = (high << 8) | low;
-                cpu->t++;
 
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE, true);
+                cpu->addr_ready_t = cpu->t;
+                cpu->t++;
             }
             break;
         case ADDR_MODE_INDIRECT_Y:
@@ -284,18 +300,21 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
                 u16 low = cpu->internal_data + cpu->y;
                 u16 high = cpu->data_bus;
                 cpu->address_bus = (high << 8) | (low & 0xFF);
+                cpu->internal_carry = low > 0xFF;
+
+                if (low <= 0xFF && bus_op_type == READ) {
+                    cpu->addr_ready_t = cpu->t;
+                }
                 cpu->t++;
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE, low <= 0xFF && bus_op_type == READ);
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_CARRY, low > 0xFF);
             }
             // t4: read data
             else if (cpu->t == 4) {
-                if (cpu_get_internal_status_flag(cpu, FLAG_INTERNAL_CARRY)) {
+                if (cpu->internal_carry) {
                     // Add one page to address
                     cpu->address_bus += 0x0100;
                 }
 
-                cpu_set_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE, true);
+                cpu->addr_ready_t = cpu->t;
                 cpu->t++;
             }
             break;
@@ -308,18 +327,8 @@ void op_ld(CPU* cpu, Op op, u8* reg) {
     assert(cpu->t > 0);
     assert(cpu->bus_mode == READ);
 
-    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
-        assert(cpu->t == 1);
-        *reg = cpu->data_bus;
-        cpu_set_zero_negative(cpu, *reg);
-
-        cpu_advance(cpu);
-        return;
-    }
-
-    if (!cpu_get_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE)) {
-        step_addressing_mode(cpu, op.addr_mode, READ);
-    } else {
+    step_addressing_mode(cpu, op.addr_mode, READ);
+    if (cpu->addr_ready_t != 0) {
         *reg = cpu->data_bus;
         cpu_set_zero_negative(cpu, *reg);
         cpu_advance(cpu);
@@ -330,14 +339,14 @@ void op_st(CPU* cpu, Op op, u8* reg) {
     assert(cpu->t > 0);
 
     // Addressing is done, instruction is done.
-    if (cpu_get_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE)) {
+    if (cpu_is_addr_ready(cpu)) {
         cpu_advance(cpu);
         return;
     }
 
     step_addressing_mode(cpu, op.addr_mode, WRITE);
 
-    if (cpu_get_internal_status_flag(cpu, FLAG_INTERNAL_ADDRESSING_DONE)) {
+    if (cpu_is_addr_ready(cpu)) {
         cpu->data_bus = *reg;
         cpu->bus_mode = WRITE;
     }
@@ -347,6 +356,112 @@ void op_transfer(CPU* cpu, Op op, u8 left, u8* right) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
     *right = left;
     cpu_set_zero_negative(cpu, *right);
+
+    cpu->pc--;
+    cpu_advance(cpu);
+}
+
+void op_adc(CPU* cpu, Op op) {
+    assert(cpu->t > 0);
+
+    step_addressing_mode(cpu, op.addr_mode, READ);
+
+    if (cpu_is_addr_ready(cpu)) {
+        u16 result = cpu->a + cpu->data_bus + cpu_get_status_flag(cpu, FLAG_CARRY);
+
+        u8 result_sign = get_bit(result, 7);
+        u8 a_sign = get_bit(cpu->a, 7);
+        u8 memory_sign = get_bit(cpu->data_bus, 7);
+        b8 overflow = result_sign != a_sign && result_sign != memory_sign;
+
+        cpu->a = result;
+
+        cpu_set_status_flag(cpu, FLAG_CARRY, result > 0xFF);
+        cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
+        cpu_set_zero_negative(cpu, result);
+
+        cpu_advance(cpu);
+    }
+}
+
+void op_sbc(CPU* cpu, Op op) {
+    assert(cpu->t > 0);
+
+    step_addressing_mode(cpu, op.addr_mode, READ);
+
+    if (cpu_is_addr_ready(cpu)) {
+        i8 result = cpu->a + ~cpu->data_bus + cpu_get_status_flag(cpu, FLAG_CARRY);
+
+        u8 result_sign = get_bit(result, 7);
+        u8 a_sign = get_bit(cpu->a, 7);
+        u8 memory_sign = get_bit(cpu->data_bus, 7);
+        b8 overflow = result_sign != a_sign && result_sign != memory_sign;
+
+        cpu->a = result;
+
+        cpu_set_status_flag(cpu, FLAG_CARRY, result >= 0);
+        cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
+        cpu_set_zero_negative(cpu, result);
+
+        cpu_advance(cpu);
+    }
+}
+
+void op_inc(CPU* cpu, Op op) {
+    if (cpu_is_addr_ready(cpu)) {
+        if (cpu->t == cpu->addr_ready_t + 1) {
+            // cpu->data_bus = cpu->data_bus;
+            cpu->bus_mode = WRITE;
+            cpu->t++;
+        } else if (cpu->t == cpu->addr_ready_t + 2) {
+            cpu->data_bus++;
+            cpu->bus_mode = WRITE;
+            cpu_set_zero_negative(cpu, cpu->data_bus);
+            cpu->t++;
+        } else if (cpu->t == cpu->addr_ready_t + 3) {
+            cpu_advance(cpu);
+        }
+    } else {
+        step_addressing_mode(cpu, op.addr_mode, WRITE);
+    }
+}
+
+void op_dec(CPU* cpu, Op op) {
+    if (cpu_is_addr_ready(cpu)) {
+        if (cpu->t == cpu->addr_ready_t + 1) {
+            // cpu->data_bus = cpu->data_bus;
+            cpu->bus_mode = WRITE;
+            cpu->t++;
+        } else if (cpu->t == cpu->addr_ready_t + 2) {
+            cpu->data_bus--;
+            cpu->bus_mode = WRITE;
+            cpu_set_zero_negative(cpu, cpu->data_bus);
+            cpu->t++;
+        } else if (cpu->t == cpu->addr_ready_t + 3) {
+            cpu_advance(cpu);
+        }
+    } else {
+        step_addressing_mode(cpu, op.addr_mode, WRITE);
+    }
+}
+
+void op_inc_register(CPU* cpu, Op op, u8* reg) {
+    assert(op.addr_mode == ADDR_MODE_IMPLIED);
+    *reg += 1;
+    cpu_set_zero_negative(cpu, *reg);
+
+    // Implied addressing doesn't read an operand so decrement pc once as to
+    // not skip the next instruction.
+    cpu->pc--;
+    cpu_advance(cpu);
+}
+
+void op_dec_register(CPU* cpu, Op op, u8* reg) {
+    assert(op.addr_mode == ADDR_MODE_IMPLIED);
+    *reg -= 1;
+    cpu_set_zero_negative(cpu, *reg);
+
+    cpu->pc--;
     cpu_advance(cpu);
 }
 
@@ -409,6 +524,32 @@ void cpu_step(CPU* cpu) {
             break;
         case OP_TYA:
             op_transfer(cpu, op, cpu->y, &cpu->a);
+            break;
+
+        // Arithmetic
+        case OP_ADC:
+            op_adc(cpu, op);
+            break;
+        case OP_SBC:
+            op_sbc(cpu, op);
+            break;
+        case OP_INC:
+            op_inc(cpu, op);
+            break;
+        case OP_DEC:
+            op_dec(cpu, op);
+            break;
+        case OP_INX:
+            op_inc_register(cpu, op, &cpu->x);
+            break;
+        case OP_DEX:
+            op_dec_register(cpu, op, &cpu->x);
+            break;
+        case OP_INY:
+            op_inc_register(cpu, op, &cpu->y);
+            break;
+        case OP_DEY:
+            op_dec_register(cpu, op, &cpu->y);
             break;
 
         case OP__UNDEFINED:

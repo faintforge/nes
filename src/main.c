@@ -58,9 +58,16 @@ i32 main(void) {
     // cpu->y = 2;
     // cpu->a = 42;
 
-    machine.rom[0] = 0xAA;
-    cpu->x = 0;
-    cpu->a = 42;
+    // machine.rom[0] = 0xDE; // DEC abs,X
+    // machine.rom[1] = 0xFF;
+    // machine.rom[2] = 0x1B;
+    // machine.ram[0x1C01] = 1;
+    // cpu->x = 2;
+    // cpu->p |= FLAG_CARRY;
+
+    machine.rom[0] = 0xCA; // DEX
+    // machine.rom[0] = 0x;
+    cpu->x = 42;
 
     cpu_step(cpu);
     cpu_step(cpu);
@@ -69,13 +76,13 @@ i32 main(void) {
     // cpu_step(cpu);
     // cpu_step(cpu);
     // cpu_step(cpu);
-    // cpu_step(cpu);
-    // cpu_step(cpu);
-    // cpu_step(cpu);
 
-    printf("a = %d ($%02X)\n", cpu->a, cpu->a);
-    printf("x = %d ($%02X)\n", cpu->x, cpu->x);
-    printf("%d\n", machine.ram[0x1B02]);
+    cpu_step(cpu);
+
+    // printf("a = %d ($%02X)\n", (i8) cpu->a, cpu->a);
+    // printf("%d\n", machine.ram[0x1C01]);
+    print_cpu_status(cpu->p);
+    printf("%d\n", cpu->x);
 
     return 0;
 }

@@ -14,11 +14,6 @@ enum {
     FLAG_NEGATIVE             = 0x80,
 };
 
-enum {
-    FLAG_INTERNAL_CARRY,
-    FLAG_INTERNAL_ADDRESSING_DONE,
-};
-
 extern void print_cpu_status(u8 status);
 
 typedef struct MemoryBus MemoryBus;
@@ -56,7 +51,9 @@ struct CPU {
     // fetching ADH.
     u8 internal_data;
 
-    u8 internal_state;
+    b8 internal_carry;
+    // What timing cycle did addressing finish
+    u8 addr_ready_t;
 
     u64 cycle;
 };
