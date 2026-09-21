@@ -379,9 +379,17 @@ void cpu_step(CPU* cpu) {
         case OP_LDX:
             op_ld(cpu, op, &cpu->x);
             break;
+        case OP_STX:
+            op_st(cpu, op, &cpu->x);
+            break;
+
         case OP_LDY:
             op_ld(cpu, op, &cpu->y);
             break;
+        case OP_STY:
+            op_st(cpu, op, &cpu->y);
+            break;
+
         case OP__UNDEFINED:
             exit(1);
 
