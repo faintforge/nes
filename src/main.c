@@ -49,8 +49,8 @@ i32 main(void) {
     cpu->address_bus = cpu->pc;
     cpu->bus_mode = READ;
 
-    machine.rom[0] = 0xA9; // LDA #imm
-    machine.rom[1] = 42;
+    // machine.rom[0] = 0xA9; // LDA #imm
+    // machine.rom[1] = 42;
     // machine.rom[0] = 0x91; // STA (ind),Y
     // machine.rom[1] = 0x1B;
     // machine.ram[0x1B] = 0x00;
@@ -58,18 +58,23 @@ i32 main(void) {
     // cpu->y = 2;
     // cpu->a = 42;
 
+    machine.rom[0] = 0xAA;
+    cpu->x = 0;
+    cpu->a = 42;
+
     cpu_step(cpu);
     cpu_step(cpu);
-    cpu_step(cpu);
-    cpu_step(cpu);
-    cpu_step(cpu);
-    cpu_step(cpu);
+    // cpu_step(cpu);
+    // cpu_step(cpu);
+    // cpu_step(cpu);
+    // cpu_step(cpu);
     // cpu_step(cpu);
     // cpu_step(cpu);
     // cpu_step(cpu);
     // cpu_step(cpu);
 
     printf("a = %d ($%02X)\n", cpu->a, cpu->a);
+    printf("x = %d ($%02X)\n", cpu->x, cpu->x);
     printf("%d\n", machine.ram[0x1B02]);
 
     return 0;

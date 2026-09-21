@@ -343,6 +343,13 @@ void op_st(CPU* cpu, Op op, u8* reg) {
     }
 }
 
+void op_transfer(CPU* cpu, Op op, u8 left, u8* right) {
+    assert(op.addr_mode == ADDR_MODE_IMPLIED);
+    *right = left;
+    cpu_set_zero_negative(cpu, *right);
+    cpu_advance(cpu);
+}
+
 void cpu_step(CPU* cpu) {
     // First phase of a cycle is always a memory operation.
     switch (cpu->bus_mode) {
@@ -388,6 +395,20 @@ void cpu_step(CPU* cpu) {
             break;
         case OP_STY:
             op_st(cpu, op, &cpu->y);
+            break;
+
+        // Transfer
+        case OP_TAX:
+            op_transfer(cpu, op, cpu->a, &cpu->x);
+            break;
+        case OP_TXA:
+            op_transfer(cpu, op, cpu->x, &cpu->a);
+            break;
+        case OP_TAY:
+            op_transfer(cpu, op, cpu->a, &cpu->y);
+            break;
+        case OP_TYA:
+            op_transfer(cpu, op, cpu->y, &cpu->a);
             break;
 
         case OP__UNDEFINED:
