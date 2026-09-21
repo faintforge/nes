@@ -26,8 +26,9 @@ void bus_write(MemoryBus* bus, u16 address, u8 value) {
     if (address < 0x8000) {
         machine->ram[address] = value;
     } else {
-        fprintf(stderr, "ERR: Can't write to ROM\n");
+        // fprintf(stderr, "ERR: Can't write to ROM\n");
     }
+    printf("WRITE(t%d): $%04X, %d ($%02X)\n", machine->cpu.t, address, value, value);
 }
 
 i32 main(void) {
@@ -48,16 +49,14 @@ i32 main(void) {
     cpu->address_bus = cpu->pc;
     cpu->bus_mode = READ;
 
-    // Prepare ROM
-    // machine.rom[0] = 0xA9; // LDA #imm
+    machine.rom[0] = 0xA9; // LDA #imm
+    machine.rom[1] = 42;
+    // machine.rom[0] = 0x91; // STA (ind),Y
     // machine.rom[1] = 0x1B;
-
-    cpu->y = 2;
-    machine.rom[0] = 0xB1; // LDA abs
-    machine.rom[1] = 0xFF;
-    machine.ram[0x00FF] = 0xFF;
-    machine.ram[0x0000] = 0x12;
-    machine.ram[0x1301] = 42;
+    // machine.ram[0x1B] = 0x00;
+    // machine.ram[0x1C] = 0x1B;
+    // cpu->y = 2;
+    // cpu->a = 42;
 
     cpu_step(cpu);
     cpu_step(cpu);
@@ -65,9 +64,13 @@ i32 main(void) {
     cpu_step(cpu);
     cpu_step(cpu);
     cpu_step(cpu);
-    cpu_step(cpu);
+    // cpu_step(cpu);
+    // cpu_step(cpu);
+    // cpu_step(cpu);
+    // cpu_step(cpu);
 
     printf("a = %d ($%02X)\n", cpu->a, cpu->a);
+    printf("%d\n", machine.ram[0x1B02]);
 
     return 0;
 }

@@ -14,6 +14,11 @@ enum {
     FLAG_NEGATIVE             = 0x80,
 };
 
+enum {
+    FLAG_INTERNAL_CARRY,
+    FLAG_INTERNAL_ADDRESSING_DONE,
+};
+
 extern void print_cpu_status(u8 status);
 
 typedef struct MemoryBus MemoryBus;
@@ -50,9 +55,8 @@ struct CPU {
     // Where data is stored between cycles. Eg: ADL in absolute addressing while
     // fetching ADH.
     u8 internal_data;
-    // Check to see if internal arithmetic caused a wrap around. Eg: indexed
-    // absolute addressing crossing page boundary.
-    u8 internal_carry;
+
+    u8 internal_state;
 
     u64 cycle;
 };
