@@ -327,8 +327,10 @@ void op_ld(CPU* cpu, Op op, u8* reg) {
     assert(cpu->t > 0);
     assert(cpu->bus_mode == READ);
 
+    // TODO: Figure out if this is actually correct or if it fails at immediate
+    // addressing.
     step_addressing_mode(cpu, op.addr_mode, READ);
-    if (cpu->addr_ready_t != 0) {
+    if (cpu_is_addr_ready(cpu)) {
         *reg = cpu->data_bus;
         cpu_set_zero_negative(cpu, *reg);
         cpu_advance(cpu);
@@ -492,6 +494,69 @@ void rmw_ror(CPU* cpu, u8* memory) {
     cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
 }
 
+void op_and(CPU* cpu, Op op) {
+    // TODO: Figure out a nicer way to handle immediate addressing.
+    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
+        cpu->a &= cpu->data_bus;
+        cpu_set_zero_negative(cpu, cpu->a);
+        cpu_advance(cpu);
+        return;
+    }
+
+    if (!cpu_is_addr_ready(cpu)) {
+        step_addressing_mode(cpu, op.addr_mode, READ);
+    } else {
+        cpu->a &= cpu->data_bus;
+        cpu_set_zero_negative(cpu, cpu->a);
+        cpu_advance(cpu);
+    }
+}
+
+void op_ora(CPU* cpu, Op op) {
+    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
+        cpu->a |= cpu->data_bus;
+        cpu_set_zero_negative(cpu, cpu->a);
+        cpu_advance(cpu);
+        return;
+    }
+
+    if (!cpu_is_addr_ready(cpu)) {
+        step_addressing_mode(cpu, op.addr_mode, READ);
+    } else {
+        cpu->a |= cpu->data_bus;
+        cpu_set_zero_negative(cpu, cpu->a);
+        cpu_advance(cpu);
+    }
+}
+
+void op_eor(CPU* cpu, Op op) {
+    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
+        cpu->a ^= cpu->data_bus;
+        cpu_set_zero_negative(cpu, cpu->a);
+        cpu_advance(cpu);
+        return;
+    }
+
+    if (!cpu_is_addr_ready(cpu)) {
+        step_addressing_mode(cpu, op.addr_mode, READ);
+    } else {
+        cpu->a ^= cpu->data_bus;
+        cpu_set_zero_negative(cpu, cpu->a);
+        cpu_advance(cpu);
+    }
+}
+
+void op_bit(CPU* cpu, Op op) {
+    if (!cpu_is_addr_ready(cpu)) {
+        step_addressing_mode(cpu, op.addr_mode, READ);
+    } else {
+        u8 result = cpu->a & cpu->data_bus;
+        cpu_set_zero_negative(cpu, result);
+        cpu_set_status_flag(cpu, FLAG_OVERFLOW, get_bit(result, 6));
+        cpu_advance(cpu);
+    }
+}
+
 void cpu_step(CPU* cpu) {
     // First phase of a cycle is always a memory operation.
     switch (cpu->bus_mode) {
@@ -593,9 +658,16 @@ void cpu_step(CPU* cpu) {
             op_read_modify_write(cpu, op, rmw_ror);
             break;
 
+        // Bitwise
+        case OP_AND:
+            op_and(cpu, op);
+            break;
+        case OP_ORA:
+            op_ora(cpu, op);
+            break;
+
         case OP__UNDEFINED:
             exit(1);
-
         default:
             UNREACHABLE();
     }

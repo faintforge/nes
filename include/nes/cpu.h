@@ -63,7 +63,4 @@ extern void cpu_reset(CPU* cpu);
 
 extern void cpu_step(CPU* cpu);
 
-extern void cpu_irq(CPU* cpu);
-extern void cpu_nmi(CPU* cpu);
-
 #endif // CPU_H
