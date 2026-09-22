@@ -65,17 +65,17 @@ i32 main(void) {
     // cpu->x = 2;
     // cpu->p |= FLAG_CARRY;
 
-    machine.rom[0] = 0x6A; // ROL A
-    // machine.rom[1] = 0x1B;
-    // machine.ram[0x1B] = 42;
-    cpu->a = 0x01;
-    cpu->p |= FLAG_CARRY;
+    machine.rom[0] = 0x66; // ROR zpg
+    machine.rom[1] = 0x1B;
+    machine.ram[0x1B] = 42;
+    // cpu->a = 41;
+    // cpu->p |= FLAG_CARRY;
 
     cpu_step(cpu);
     cpu_step(cpu);
-    // cpu_step(cpu);
-    // cpu_step(cpu);
-    // cpu_step(cpu);
+    cpu_step(cpu);
+    cpu_step(cpu);
+    cpu_step(cpu);
     // cpu_step(cpu);
     // cpu_step(cpu);
 
