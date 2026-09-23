@@ -557,6 +557,25 @@ void op_bit(CPU* cpu, Op op) {
     }
 }
 
+void op_cmp(CPU* cpu, Op op, u8 reg) {
+    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
+        cpu_set_status_flag(cpu, FLAG_CARRY, reg >= cpu->data_bus);
+        cpu_set_status_flag(cpu, FLAG_ZERO, reg == cpu->data_bus);
+        cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(reg - cpu->data_bus, 7));
+        cpu_advance(cpu);
+        return;
+    }
+
+    if (!cpu_is_addr_ready(cpu)) {
+        step_addressing_mode(cpu, op.addr_mode, READ);
+    } else {
+        cpu_set_status_flag(cpu, FLAG_CARRY, reg >= cpu->data_bus);
+        cpu_set_status_flag(cpu, FLAG_ZERO, reg == cpu->data_bus);
+        cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(reg - cpu->data_bus, 7));
+        cpu_advance(cpu);
+    }
+}
+
 void cpu_step(CPU* cpu) {
     // First phase of a cycle is always a memory operation.
     switch (cpu->bus_mode) {
@@ -664,6 +683,17 @@ void cpu_step(CPU* cpu) {
             break;
         case OP_ORA:
             op_ora(cpu, op);
+            break;
+
+        // Compare
+        case OP_CMP:
+            op_cmp(cpu, op, cpu->a);
+            break;
+        case OP_CPX:
+            op_cmp(cpu, op, cpu->x);
+            break;
+        case OP_CPY:
+            op_cmp(cpu, op, cpu->y);
             break;
 
         case OP__UNDEFINED:
