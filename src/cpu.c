@@ -246,6 +246,41 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
                 cpu->t++;
             }
             break;
+        case ADDR_MODE_INDIRECT:
+            assert(cpu->t >= 1 && cpu->t <= 5);
+            // t1: read op low
+            if (cpu->t == 1) {
+                cpu->internal_data = cpu->data_bus;
+                cpu_advance_pc(cpu);
+                cpu->t++;
+            }
+            // t2: read op high
+            else if (cpu->t == 2) {
+                cpu->address_bus = ((u16) cpu->data_bus << 8) | cpu->internal_data;
+                cpu->t++;
+            }
+            // t3: read adl
+            else if (cpu->t == 3) {
+                cpu->internal_data = cpu->data_bus;
+                // NOTE: This page wrapping behavior only occurs on the
+                // NMOS 6502. The CMOS 65C02 fixes this.
+                u16 high = cpu->address_bus >> 8;
+                cpu->address_bus += 1;
+                // Page wrapping
+                cpu->address_bus &= 0xFF;
+                cpu->address_bus |= high << 8;
+                cpu->t++;
+            }
+            // t4: read adh
+            else if (cpu->t == 4) {
+                u8 low = cpu->internal_data;
+                u16 high = cpu->data_bus;
+                cpu->address_bus = (high << 8) | low;
+
+                cpu->addr_ready_t = cpu->t;
+                cpu->t++;
+            }
+            break;
         case ADDR_MODE_INDIRECT_X:
             assert(cpu->t >= 1 && cpu->t <= 5);
             // t1: read zpg address
@@ -576,6 +611,92 @@ void op_cmp(CPU* cpu, Op op, u8 reg) {
     }
 }
 
+void op_jmp(CPU* cpu, Op op) {
+    step_addressing_mode(cpu, op.addr_mode, READ);
+    if (cpu_is_addr_ready(cpu)) {
+        u16 address = cpu->address_bus;
+        cpu_advance(cpu);
+        cpu->pc = address;
+        cpu->address_bus = address;
+    }
+}
+
+void op_jsr(CPU* cpu, Op op) {
+    assert(op.addr_mode == ADDR_MODE_ABSOLUTE);
+
+    switch (cpu->t) {
+        // Fetch adl
+        case 1:
+            cpu->internal_data = cpu->data_bus;
+            cpu_advance_pc(cpu);
+            // Jump to stack
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->t++;
+            break;
+        // Push pch
+        case 2:
+            cpu->bus_mode = WRITE;
+            cpu->data_bus = cpu->pc >> 8;
+            cpu->t++;
+            break;
+        // Push pcl
+        case 3:
+            cpu->bus_mode = WRITE;
+            cpu->data_bus = cpu->pc & 0xFF;
+            cpu->s--;
+            // Stack page wrap around behavior
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->t++;
+            break;
+        case 4:
+            cpu->s--;
+            cpu->bus_mode = READ;
+            cpu->address_bus = cpu->pc;
+            cpu->t++;
+            break;
+        // Fetch adh
+        case 5:
+            cpu_advance(cpu);
+            cpu->address_bus = ((u16) cpu->data_bus << 8) | cpu->internal_data;
+            cpu->pc = cpu->address_bus;
+            break;
+    }
+}
+
+void op_rts(CPU* cpu, Op op) {
+    assert(op.addr_mode == ADDR_MODE_IMPLIED);
+
+    switch (cpu->t) {
+        // Fetch adl
+        case 1:
+            // Jump to stack
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->t++;
+            break;
+        case 2:
+            cpu->s++;
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->t++;
+            break;
+        case 3:
+            // Fetch pcl
+            cpu->internal_data = cpu->data_bus;
+            cpu->s++;
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->t++;
+            break;
+        case 4:
+            // Fetch pch
+            cpu->address_bus = ((u16) cpu->data_bus << 8) | cpu->internal_data;
+            cpu->pc = cpu->address_bus;
+            cpu->t++;
+            break;
+        case 5:
+            cpu_advance(cpu);
+            break;
+    }
+}
+
 void cpu_step(CPU* cpu) {
     // First phase of a cycle is always a memory operation.
     switch (cpu->bus_mode) {
@@ -694,6 +815,17 @@ void cpu_step(CPU* cpu) {
             break;
         case OP_CPY:
             op_cmp(cpu, op, cpu->y);
+            break;
+
+        // Branch
+        case OP_JMP:
+            op_jmp(cpu, op);
+            break;
+        case OP_JSR:
+            op_jsr(cpu, op);
+            break;
+        case OP_RTS:
+            op_rts(cpu, op);
             break;
 
         case OP__UNDEFINED:

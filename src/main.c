@@ -48,39 +48,28 @@ i32 main(void) {
     cpu->pc = 0x8000;
     cpu->address_bus = cpu->pc;
     cpu->bus_mode = READ;
+    cpu->s = 0xFF;
 
-    // machine.rom[0] = 0xA9; // LDA #imm
-    // machine.rom[1] = 42;
-    // machine.rom[0] = 0x91; // STA (ind),Y
-    // machine.rom[1] = 0x1B;
-    // machine.ram[0x1B] = 0x00;
-    // machine.ram[0x1C] = 0x1B;
-    // cpu->y = 2;
-    // cpu->a = 42;
-
-    // machine.rom[0] = 0xDE; // DEC abs,X
-    // machine.rom[1] = 0xFF;
-    // machine.rom[2] = 0x1B;
-    // machine.ram[0x1C01] = 1;
-    // cpu->x = 2;
-    // cpu->p |= FLAG_CARRY;
-
-    machine.rom[0] = 0x29; // AND #imm
-    machine.rom[1] = 0x80;
-    cpu->a = 0xFF;
-
-    // machine.rom[0] = 0x25; // AND zpg
-    // machine.rom[1] = 0x1B;
-    // machine.ram[0x1B] = 0x80;
-    // cpu->a = 0xFF;
+    machine.rom[0] = 0x20; // JSR
+    machine.rom[1] = 0x20;
+    machine.rom[2] = 0x80;
+    machine.rom[0x20] = 0x60; // RTS
 
     cpu_step(cpu);
     cpu_step(cpu);
-    // cpu_step(cpu);
-    // cpu_step(cpu);
-    // cpu_step(cpu);
-    // cpu_step(cpu);
-    // cpu_step(cpu);
+    cpu_step(cpu);
+    cpu_step(cpu);
+    cpu_step(cpu);
+    cpu_step(cpu);
+    printf("\n");
+
+    cpu_step(cpu);
+    cpu_step(cpu);
+    cpu_step(cpu);
+    cpu_step(cpu);
+    cpu_step(cpu);
+    cpu_step(cpu);
+    printf("\n");
 
     cpu_step(cpu);
 
