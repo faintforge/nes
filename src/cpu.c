@@ -743,12 +743,15 @@ void op_brk(CPU* cpu, Op op) {
             cpu_set_status_flag(cpu, FLAG_INTERRUPT_DISABLE, true);
             cpu->bus_mode = READ;
             switch (cpu->interrupt_type) {
-                case BRK:
-                case IRQ:
-                    cpu->address_bus = 0xFFFE;
-                    break;
                 case NMI:
                     cpu->address_bus = 0xFFFA;
+                    break;
+                case RESET:
+                    cpu->address_bus = 0xFFFC;
+                // fallthrough
+                case IRQ:
+                case BRK:
+                    cpu->address_bus = 0xFFFE;
                     break;
                 default:
                     UNREACHABLE();

@@ -29,8 +29,9 @@ enum {
 };
 
 enum {
-    IRQ,
     NMI,
+    RESET,
+    IRQ,
     BRK,
 };
 
