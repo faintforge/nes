@@ -28,6 +28,12 @@ enum {
     READ,
 };
 
+enum {
+    IRQ,
+    NMI,
+    BRK,
+};
+
 typedef struct CPU CPU;
 struct CPU {
     MemoryBus bus;
@@ -50,10 +56,12 @@ struct CPU {
     // Where data is stored between cycles. Eg: ADL in absolute addressing while
     // fetching ADH.
     u8 internal_data;
-
     b8 internal_carry;
-    // What timing cycle did addressing finish
+    // What timing cycle did addressing finish. Needed for read-modify-write
+    // instructions.
     u8 addr_ready_t;
+
+    u8 interrupt_type;
 
     u64 cycle;
 };

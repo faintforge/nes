@@ -43,6 +43,8 @@ static void cpu_advance(CPU* cpu) {
     cpu->t = 0;
     cpu->internal_carry = 0;
     cpu->addr_ready_t = 0;
+
+    printf("Poll for interrupt\n");
 }
 
 // Advance PC only
@@ -355,6 +357,8 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
             break;
         case ADDR_MODE_IMPLIED:
             UNREACHABLE();
+        default:
+            UNREACHABLE();
     }
 }
 
@@ -660,6 +664,8 @@ void op_jsr(CPU* cpu, Op op) {
             cpu->address_bus = ((u16) cpu->data_bus << 8) | cpu->internal_data;
             cpu->pc = cpu->address_bus;
             break;
+        default:
+            UNREACHABLE();
     }
 }
 
@@ -694,6 +700,115 @@ void op_rts(CPU* cpu, Op op) {
         case 5:
             cpu_advance(cpu);
             break;
+        default:
+            UNREACHABLE();
+    }
+}
+
+void op_brk(CPU* cpu, Op op) {
+    assert(op.addr_mode == ADDR_MODE_IMPLIED);
+
+    switch (cpu->t) {
+        // Push pch
+        case 1:
+            cpu_advance_pc(cpu);
+            cpu->bus_mode = WRITE;
+            cpu->data_bus = cpu->pc >> 8;
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->s--;
+            cpu->t++;
+            break;
+        // Push pcl
+        case 2:
+            cpu->bus_mode = WRITE;
+            cpu->data_bus = cpu->pc & 0xFF;
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->s--;
+            cpu->t++;
+            break;
+        // Push p
+        case 3:
+            cpu->bus_mode = WRITE;
+            if (cpu->interrupt_type == BRK) {
+                cpu->data_bus = cpu->p | FLAG_BREAK;
+            } else {
+                cpu->data_bus = cpu->p;
+            }
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->s--;
+            cpu->t++;
+            break;
+        // Fetch adl
+        case 4:
+            cpu_set_status_flag(cpu, FLAG_INTERRUPT_DISABLE, true);
+            cpu->bus_mode = READ;
+            switch (cpu->interrupt_type) {
+                case BRK:
+                case IRQ:
+                    cpu->address_bus = 0xFFFE;
+                    break;
+                case NMI:
+                    cpu->address_bus = 0xFFFA;
+                    break;
+                default:
+                    UNREACHABLE();
+            }
+            cpu->t++;
+            break;
+        // Fetch adh
+        case 5:
+            cpu->internal_data = cpu->data_bus;
+            cpu->address_bus++;
+            cpu->t++;
+            break;
+        // Jump to interrupt vector
+        case 6:
+            cpu->pc = ((u16) cpu->data_bus << 8) | cpu->internal_data;
+            cpu->address_bus = cpu->pc;
+            cpu->addr_ready_t = 0;
+            cpu->t = 0;
+            break;
+        default:
+            UNREACHABLE();
+    }
+}
+
+void op_rti(CPU* cpu, Op op) {
+    assert(op.addr_mode == ADDR_MODE_IMPLIED);
+
+    switch (cpu->t) {
+        case 1:
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->t++;
+            break;
+        // Fetch p
+        case 2:
+            cpu->s++;
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->t++;
+            break;
+        // Fetch adl
+        case 3:
+            cpu->p = cpu->data_bus;
+            cpu->s++;
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->t++;
+            break;
+        // Fetch adh
+        case 4:
+            cpu->internal_data = cpu->data_bus;
+            cpu->s++;
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->t++;
+            break;
+        case 5:
+            cpu->pc = ((u16) cpu->data_bus << 8) | cpu->internal_data;
+            cpu->address_bus = cpu->pc;
+            cpu->addr_ready_t = 0;
+            cpu->t = 0;
+            break;
+        default:
+            UNREACHABLE();
     }
 }
 
@@ -714,7 +829,7 @@ void cpu_step(CPU* cpu) {
     if (cpu->t == 0) {
         assert(cpu->bus_mode == READ);
         cpu->ir = cpu->data_bus;
-        cpu_advance(cpu);
+        cpu_advance_pc(cpu);
         cpu->t++;
         return;
     }
@@ -817,7 +932,7 @@ void cpu_step(CPU* cpu) {
             op_cmp(cpu, op, cpu->y);
             break;
 
-        // Branch
+        // Jump
         case OP_JMP:
             op_jmp(cpu, op);
             break;
@@ -826,6 +941,12 @@ void cpu_step(CPU* cpu) {
             break;
         case OP_RTS:
             op_rts(cpu, op);
+            break;
+        case OP_BRK:
+            op_brk(cpu, op);
+            break;
+        case OP_RTI:
+            op_rti(cpu, op);
             break;
 
         case OP__UNDEFINED:

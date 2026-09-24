@@ -50,11 +50,12 @@ i32 main(void) {
     cpu->bus_mode = READ;
     cpu->s = 0xFF;
 
-    machine.rom[0] = 0x20; // JSR
-    machine.rom[1] = 0x20;
-    machine.rom[2] = 0x80;
-    machine.rom[0x20] = 0x60; // RTS
+    machine.rom[0] = 0x00; // BRK
+    machine.rom[0xFFFE - 0x8000] = 0x02;
+    machine.rom[0xFFFF - 0x8000] = 0x1B;
+    machine.ram[0x1B02] = 0x40; // RTI
 
+    cpu_step(cpu);
     cpu_step(cpu);
     cpu_step(cpu);
     cpu_step(cpu);
