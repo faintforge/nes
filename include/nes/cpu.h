@@ -29,6 +29,7 @@ enum {
 };
 
 enum {
+    NONE,
     NMI,
     RESET,
     IRQ,
@@ -49,6 +50,10 @@ struct CPU {
     u16 pc;
     u8 s;
     u8 p;
+
+    u8 nmi;
+    u8 reset;
+    u8 irq;
 
     // Instruction register
     u8 ir;

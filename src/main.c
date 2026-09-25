@@ -45,14 +45,29 @@ i32 main(void) {
     };
     machine.cpu = cpu_init(bus);
     CPU* cpu = &machine.cpu;
-    cpu->pc = 0x8000;
-    cpu->address_bus = cpu->pc;
-    cpu->bus_mode = READ;
-    cpu->s = 0xFF;
+    // cpu->pc = 0x8000;
+    // cpu->address_bus = cpu->pc;
+    // cpu->bus_mode = READ;
+    // cpu->s = 0xFF;
+    // cpu->p &= ~FLAG_INTERRUPT_DISABLE;
+    // cpu->irq = 1;
 
     machine.rom[0] = 0x00; // BRK
-    machine.rom[0xFFFE - 0x8000] = 0x02;
-    machine.rom[0xFFFF - 0x8000] = 0x1B;
+    machine.rom[1] = 0x00;
+    machine.rom[3] = 0xA2; // LDX #imm
+    machine.rom[4] = 0xFF;
+    machine.rom[0x9000 - 0x8000] = 0x40; // RTI
+
+    // NMI vector
+    machine.rom[0xFFFA - 0x8000] = 0xFD;
+    machine.rom[0xFFFB - 0x8000] = 0xFD;
+    // Reset vector
+    machine.rom[0xFFFC - 0x8000] = 0x00;
+    machine.rom[0xFFFD - 0x8000] = 0x80;
+    // IRQ vector
+    machine.rom[0xFFFE - 0x8000] = 0x00;
+    machine.rom[0xFFFF - 0x8000] = 0x90;
+
     machine.ram[0x1B02] = 0x40; // RTI
 
     cpu_step(cpu);
@@ -70,11 +85,24 @@ i32 main(void) {
     cpu_step(cpu);
     cpu_step(cpu);
     cpu_step(cpu);
+    cpu_step(cpu);
+    printf("\n");
+
+    cpu_step(cpu);
+    cpu_step(cpu);
+    cpu_step(cpu);
+    cpu_step(cpu);
+    cpu_step(cpu);
+    cpu_step(cpu);
+    printf("\n");
+
+    cpu_step(cpu);
+    cpu_step(cpu);
     printf("\n");
 
     cpu_step(cpu);
 
-    printf("a = %d ($%02X)\n", cpu->a, cpu->a);
+    printf("x = %d ($%02X)\n", cpu->x, cpu->x);
     printf("%d\n", machine.ram[0x1B]);
     print_cpu_status(cpu->p);
     // printf("%d\n", cpu->x);

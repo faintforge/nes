@@ -44,7 +44,13 @@ static void cpu_advance(CPU* cpu) {
     cpu->internal_carry = 0;
     cpu->addr_ready_t = 0;
 
-    printf("Poll for interrupt\n");
+    if (cpu->reset != 0) {
+        cpu->interrupt_type = RESET;
+    } else if (cpu->nmi != 0) {
+        cpu->interrupt_type = NMI;
+    } else if (cpu->irq != 0 && !cpu_get_status_flag(cpu, FLAG_INTERRUPT_DISABLE)) {
+        cpu->interrupt_type = IRQ;
+    }
 }
 
 // Advance PC only
@@ -56,24 +62,6 @@ static void cpu_advance_pc(CPU* cpu) {
 static b8 cpu_is_addr_ready(CPU* cpu) {
     return cpu->addr_ready_t != 0;
 }
-
-// static u8 cpu_read(CPU* cpu, u16 address) {
-//     cpu->bus.write(&cpu->bus, address, value);
-// }
-//
-// static void cpu_write(CPU* cpu, u16 address, u8 value) {
-//     cpu->bus.write(&cpu->bus, address, value);
-// }
-//
-// static void stack_push(CPU* cpu, u8 value) {
-//     cpu_write(cpu, STACK_START + cpu->s, value);
-//     cpu->s--;
-// }
-//
-// static u8 stack_pop(CPU* cpu) {
-//     cpu->s++;
-//     return cpu_read(cpu, STACK_START + cpu->s);
-// }
 
 
 
@@ -105,9 +93,10 @@ CPU cpu_init(MemoryBus bus) {
         .a = 0,
         .x = 0,
         .y = 0,
-        .pc = 0xFFFC,
+        .pc = 0x0000,
         .s = 0,
         .p = FLAG_INTERRUPT_DISABLE,
+        .interrupt_type = RESET,
     };
 
     return cpu;
@@ -720,6 +709,9 @@ void op_brk(CPU* cpu, Op op) {
             break;
         // Push pcl
         case 2:
+            // TODO: Check if we should advance the PC when servicing a non-brk
+            // interrupt request.
+            cpu_advance_pc(cpu);
             cpu->bus_mode = WRITE;
             cpu->data_bus = cpu->pc & 0xFF;
             cpu->address_bus = 0x0100 | cpu->s;
@@ -748,6 +740,7 @@ void op_brk(CPU* cpu, Op op) {
                     break;
                 case RESET:
                     cpu->address_bus = 0xFFFC;
+                    break;
                 // fallthrough
                 case IRQ:
                 case BRK:
@@ -770,6 +763,7 @@ void op_brk(CPU* cpu, Op op) {
             cpu->address_bus = cpu->pc;
             cpu->addr_ready_t = 0;
             cpu->t = 0;
+            cpu->interrupt_type = NONE;
             break;
         default:
             UNREACHABLE();
@@ -792,7 +786,7 @@ void op_rti(CPU* cpu, Op op) {
             break;
         // Fetch adl
         case 3:
-            cpu->p = cpu->data_bus;
+            cpu->p = cpu->data_bus & ~FLAG_BREAK;
             cpu->s++;
             cpu->address_bus = 0x0100 | cpu->s;
             cpu->t++;
@@ -828,14 +822,28 @@ void cpu_step(CPU* cpu) {
             UNREACHABLE();
     }
 
-    // t0: Fetch new opcode
-    if (cpu->t == 0) {
-        assert(cpu->bus_mode == READ);
-        cpu->ir = cpu->data_bus;
-        cpu_advance_pc(cpu);
-        cpu->t++;
-        return;
+    if (cpu->interrupt_type != NONE) {
+        if (cpu->t == 0) {
+            cpu->ir = 0x00;
+            cpu->t++;
+            return;
+        }
+    } else {
+        if (cpu->t == 0) {
+            assert(cpu->bus_mode == READ);
+            cpu->ir = cpu->data_bus;
+            cpu_advance_pc(cpu);
+            cpu->t++;
+            if (OPCODE_TABLE[cpu->ir].type == OP_BRK) {
+                cpu->interrupt_type = BRK;
+            }
+            return;
+        }
     }
+
+
+    // TODO: Refactor a lot of common operations into their own function for
+    // readability
 
     // Step instruction
     Op op = OPCODE_TABLE[cpu->ir];
