@@ -96,6 +96,7 @@ CPU cpu_init(MemoryBus bus) {
         .pc = 0x0000,
         .s = 0,
         .p = FLAG_INTERRUPT_DISABLE,
+        .bus_mode = READ,
         .interrupt_type = RESET,
     };
 
@@ -809,6 +810,54 @@ void op_rti(CPU* cpu, Op op) {
     }
 }
 
+void op_branch(CPU* cpu, Op op, u8 should_branch) {
+    assert(op.addr_mode == ADDR_MODE_RELATIVE);
+
+    // TODO: This feels really awkward. Figure out a nicer way to write it.
+    switch (cpu->t) {
+        case 1:
+            if (!should_branch) {
+                cpu_advance_pc(cpu);
+                return;
+            }
+
+            cpu_advance_pc(cpu);
+
+            u16 result = cpu->pc + (i8) cpu->data_bus;
+            i16 start_page = cpu->pc >> 8;
+            i16 end_page = result >> 8;
+            // Page boundary crossed
+            if (start_page != end_page) {
+                i8 sign = get_bit(end_page - start_page, 7)*-2 + 1;
+                // This is kind of disgusting, but if it works it works.
+                cpu->internal_carry = sign;
+                result -= 0x0100 * sign;
+                cpu->pc = result;
+                cpu->address_bus = cpu->pc;
+                cpu->t++;
+            } else {
+                cpu->pc = result;
+                cpu->address_bus = cpu->pc;
+                cpu->t++;
+            }
+            break;
+        case 2:
+            if (cpu->internal_carry != 0) {
+                cpu->pc += 0x0100 * cpu->internal_carry;
+                cpu->address_bus = cpu->pc;
+                cpu->t++;
+            } else {
+                cpu->pc--;
+                cpu_advance(cpu);
+            }
+            break;
+        case 3:
+            cpu->pc--;
+            cpu_advance(cpu);
+            break;
+    }
+}
+
 void cpu_step(CPU* cpu) {
     // First phase of a cycle is always a memory operation.
     switch (cpu->bus_mode) {
@@ -877,6 +926,7 @@ void cpu_step(CPU* cpu) {
         case OP_TXA:
             op_transfer(cpu, op, cpu->x, &cpu->a);
             break;
+
         case OP_TAY:
             op_transfer(cpu, op, cpu->a, &cpu->y);
             break;
@@ -891,18 +941,21 @@ void cpu_step(CPU* cpu) {
         case OP_SBC:
             op_sbc(cpu, op);
             break;
+
         case OP_INC:
             op_read_modify_write(cpu, op, rmw_inc);
             break;
         case OP_DEC:
             op_read_modify_write(cpu, op, rmw_dec);
             break;
+
         case OP_INX:
             op_inc_register(cpu, op, &cpu->x);
             break;
         case OP_DEX:
             op_dec_register(cpu, op, &cpu->x);
             break;
+
         case OP_INY:
             op_inc_register(cpu, op, &cpu->y);
             break;
@@ -943,21 +996,58 @@ void cpu_step(CPU* cpu) {
             op_cmp(cpu, op, cpu->y);
             break;
 
+        // Branch
+        case OP_BCC:
+            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_CARRY) == false);
+            break;
+        case OP_BCS:
+            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_CARRY) == true);
+            break;
+
+        case OP_BEQ:
+            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_ZERO) == true);
+            break;
+        case OP_BNE:
+            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_ZERO) == false);
+            break;
+
+        case OP_BPL:
+            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_NEGATIVE) == false);
+            break;
+        case OP_BMI:
+            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_NEGATIVE) == true);
+            break;
+
+        case OP_BVC:
+            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_OVERFLOW) == false);
+            break;
+        case OP_BVS:
+            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_OVERFLOW) == true);
+            break;
+
         // Jump
         case OP_JMP:
             op_jmp(cpu, op);
             break;
+
         case OP_JSR:
             op_jsr(cpu, op);
             break;
         case OP_RTS:
             op_rts(cpu, op);
             break;
+
         case OP_BRK:
             op_brk(cpu, op);
             break;
         case OP_RTI:
             op_rti(cpu, op);
+            break;
+
+        // Other
+        case OP_NOP:
+            cpu->pc--;
+            cpu_advance(cpu);
             break;
 
         case OP__UNDEFINED:
