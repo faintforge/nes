@@ -858,6 +858,47 @@ void op_branch(CPU* cpu, Op op, u8 should_branch) {
     }
 }
 
+void op_push(CPU* cpu, Op op, u8 value) {
+    assert(op.addr_mode == ADDR_MODE_IMPLIED);
+
+    switch (cpu->t) {
+        case 1:
+            cpu->s--;
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->data_bus = value;
+            cpu->bus_mode = WRITE;
+            cpu->t++;
+            break;
+        case 2:
+            // TODO: This patterns happens a lot. Find some nicer way to do it.
+            cpu->pc--;
+            cpu_advance(cpu);
+            break;
+    }
+}
+
+u8 op_pull(CPU* cpu, Op op) {
+    assert(op.addr_mode == ADDR_MODE_IMPLIED);
+
+    switch (cpu->t) {
+        case 1:
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->t++;
+            break;
+        case 2:
+            cpu->s++;
+            cpu->address_bus = 0x0100 | cpu->s;
+            cpu->t++;
+            break;
+        case 3:
+            cpu->pc--;
+            cpu_advance(cpu);
+            return cpu->data_bus;
+    }
+
+    return 0xEA;
+}
+
 void cpu_step(CPU* cpu) {
     // First phase of a cycle is always a memory operation.
     switch (cpu->bus_mode) {
@@ -1042,6 +1083,31 @@ void cpu_step(CPU* cpu) {
             break;
         case OP_RTI:
             op_rti(cpu, op);
+            break;
+
+        // Stack
+        case OP_PHA:
+            op_push(cpu, op, cpu->a);
+            break;
+        case OP_PLA:
+            cpu->a = op_pull(cpu, op);
+            break;
+
+        case OP_PHP:
+            op_push(cpu, op, cpu->p | FLAG_BREAK);
+            break;
+        case OP_PLP:
+            // TODO: Delay change of FLAG_INTERRUPT_DISABLE until next irq
+            // is next polled.
+            cpu->p = op_pull(cpu, op);
+            cpu->p &= ~FLAG_BREAK;
+            break;
+
+        case OP_TXS:
+            op_transfer(cpu, op, cpu->x, &cpu->s);
+            break;
+        case OP_TSX:
+            op_transfer(cpu, op, cpu->s, &cpu->x);
             break;
 
         // Other

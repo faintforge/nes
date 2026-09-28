@@ -45,17 +45,14 @@ i32 main(void) {
     };
     machine.cpu = cpu_init(bus);
     CPU* cpu = &machine.cpu;
-    cpu->pc = 0x8080;
+    cpu->pc = 0x8000;
     cpu->address_bus = cpu->pc;
     cpu->s = 0xFF;
     cpu->interrupt_type = NONE;
 
-    #define OFFSET ((i8) 127)
-    // printf("%02X\n", 0x82 + OFFSET);
-    machine.rom[0x80] = 0x90; // BCC rel
-    machine.rom[0x81] = OFFSET;
-    machine.rom[0x82 + OFFSET] = 0xEA;
+    machine.rom[0] = 0x68;
 
+    cpu->a = 42;
     cpu_step(cpu);
     cpu_step(cpu);
     cpu_step(cpu);
