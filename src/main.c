@@ -50,11 +50,8 @@ i32 main(void) {
     cpu->s = 0xFF;
     cpu->interrupt_type = NONE;
 
-    machine.rom[0] = 0x68;
+    machine.rom[0] = 0x38;
 
-    cpu->a = 42;
-    cpu_step(cpu);
-    cpu_step(cpu);
     cpu_step(cpu);
     cpu_step(cpu);
     printf("\n");

@@ -1110,6 +1110,47 @@ void cpu_step(CPU* cpu) {
             op_transfer(cpu, op, cpu->s, &cpu->x);
             break;
 
+        // Flags
+        case OP_CLC:
+            cpu->p &= ~FLAG_CARRY;
+            cpu->pc--;
+            cpu_advance(cpu);
+            break;
+        case OP_SEC:
+            cpu->p |= FLAG_CARRY;
+            cpu->pc--;
+            cpu_advance(cpu);
+            break;
+
+        // TODO: Delay both of these one instruction
+        case OP_CLI:
+            cpu->p &= ~FLAG_INTERRUPT_DISABLE;
+            cpu->pc--;
+            cpu_advance(cpu);
+            break;
+        case OP_SEI:
+            cpu->p |= FLAG_INTERRUPT_DISABLE;
+            cpu->pc--;
+            cpu_advance(cpu);
+            break;
+
+        case OP_CLD:
+            cpu->p &= ~FLAG_DECIMAL;
+            cpu->pc--;
+            cpu_advance(cpu);
+            break;
+        case OP_SED:
+            cpu->p |= FLAG_DECIMAL;
+            cpu->pc--;
+            cpu_advance(cpu);
+            break;
+
+        case OP_CLV:
+            cpu->p &= ~FLAG_OVERFLOW;
+            cpu->pc--;
+            cpu_advance(cpu);
+            break;
+
         // Other
         case OP_NOP:
             cpu->pc--;
