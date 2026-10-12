@@ -44,6 +44,27 @@ static void cpu_advance(CPU* cpu) {
     cpu->internal_carry = 0;
     cpu->addr_ready_t = 0;
 
+    switch (cpu->delay_interrupt_disable) {
+        // Nothing
+        case -1:
+            break;
+
+        // fallthrough
+        case 1:
+        case 3:
+            cpu->delay_interrupt_disable--;
+            break;
+
+        case 0:
+            cpu->p &= ~FLAG_INTERRUPT_DISABLE;
+            cpu->delay_interrupt_disable = -1;
+            break;
+        case 2:
+            cpu->p |= FLAG_INTERRUPT_DISABLE;
+            cpu->delay_interrupt_disable = -1;
+            break;
+    }
+
     if (cpu->reset != 0) {
         cpu->interrupt_type = RESET;
     } else if (cpu->nmi != 0) {
@@ -1096,12 +1117,20 @@ void cpu_step(CPU* cpu) {
         case OP_PHP:
             op_push(cpu, op, cpu->p | FLAG_BREAK);
             break;
-        case OP_PLP:
-            // TODO: Delay change of FLAG_INTERRUPT_DISABLE until next irq
-            // is next polled.
-            cpu->p = op_pull(cpu, op);
-            cpu->p &= ~FLAG_BREAK;
-            break;
+        case OP_PLP: {
+            u8 result = op_pull(cpu, op);
+            // NOTE: This is kind of disgusting but it works :3
+            cpu->delay_interrupt_disable = (result & FLAG_INTERRUPT_DISABLE) != 0;
+            cpu->delay_interrupt_disable = cpu->delay_interrupt_disable*2 + 1;
+            // Clear I
+            result &= ~FLAG_INTERRUPT_DISABLE;
+            // Take the value of current I
+            result |= (cpu->p & FLAG_INTERRUPT_DISABLE);
+            cpu->p = result;
+
+            cpu->pc--;
+            cpu_advance(cpu);
+        } break;
 
         case OP_TXS:
             op_transfer(cpu, op, cpu->x, &cpu->s);
@@ -1122,14 +1151,13 @@ void cpu_step(CPU* cpu) {
             cpu_advance(cpu);
             break;
 
-        // TODO: Delay both of these one instruction
         case OP_CLI:
-            cpu->p &= ~FLAG_INTERRUPT_DISABLE;
+            cpu->delay_interrupt_disable = 1;
             cpu->pc--;
             cpu_advance(cpu);
             break;
         case OP_SEI:
-            cpu->p |= FLAG_INTERRUPT_DISABLE;
+            cpu->delay_interrupt_disable = 3;
             cpu->pc--;
             cpu_advance(cpu);
             break;

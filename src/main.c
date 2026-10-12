@@ -50,13 +50,18 @@ i32 main(void) {
     cpu->s = 0xFF;
     cpu->interrupt_type = NONE;
 
-    machine.rom[0] = 0x38;
+    machine.rom[0] = 0x58;
+    machine.rom[1] = 0xEA;
 
     cpu_step(cpu);
     cpu_step(cpu);
     printf("\n");
 
     cpu_step(cpu);
+    cpu_step(cpu);
+    printf("\n");
+
+    // cpu_step(cpu);
 
     printf("x = %d ($%02X)\n", cpu->x, cpu->x);
     printf("%d\n", machine.ram[0x1B]);
