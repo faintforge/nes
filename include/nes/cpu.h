@@ -68,12 +68,8 @@ struct CPU {
     u8 addr_ready_t;
 
     // -1 = nothing
-    //
-    //  0 = off now
-    //  1 = off next instruction
-    //
-    //  2 = on now
-    //  3 = on next instruction
+    //  0 = off
+    //  2 = on
     i8 delay_interrupt_disable;
 
     u8 interrupt_type;

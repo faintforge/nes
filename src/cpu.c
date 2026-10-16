@@ -44,33 +44,29 @@ static void cpu_advance(CPU* cpu) {
     cpu->internal_carry = 0;
     cpu->addr_ready_t = 0;
 
-    switch (cpu->delay_interrupt_disable) {
-        // Nothing
-        case -1:
-            break;
-
-        // fallthrough
-        case 1:
-        case 3:
-            cpu->delay_interrupt_disable--;
-            break;
-
-        case 0:
-            cpu->p &= ~FLAG_INTERRUPT_DISABLE;
-            cpu->delay_interrupt_disable = -1;
-            break;
-        case 2:
-            cpu->p |= FLAG_INTERRUPT_DISABLE;
-            cpu->delay_interrupt_disable = -1;
-            break;
-    }
-
     if (cpu->reset != 0) {
         cpu->interrupt_type = RESET;
     } else if (cpu->nmi != 0) {
         cpu->interrupt_type = NMI;
     } else if (cpu->irq != 0 && !cpu_get_status_flag(cpu, FLAG_INTERRUPT_DISABLE)) {
         cpu->interrupt_type = IRQ;
+    }
+
+
+    // NOTE: Delayed changes to I happen *AFTER* an IRQ is polled for the
+    // instruction triggering the changing, not after the next instruction.
+    switch (cpu->delay_interrupt_disable) {
+        // Nothing
+        case -1:
+            break;
+        case 0:
+            cpu->p &= ~FLAG_INTERRUPT_DISABLE;
+            cpu->delay_interrupt_disable = -1;
+            break;
+        case 1:
+            cpu->p |= FLAG_INTERRUPT_DISABLE;
+            cpu->delay_interrupt_disable = -1;
+            break;
     }
 }
 
@@ -93,7 +89,7 @@ void print_cpu_status(u8 status) {
         'i', 'I', // Interrupt
         'd', 'D', // Decimal
         'b', 'B', // Break
-        '_', '_', // Decimal
+        '-', '_', // Expansion
         'v', 'V', // Overflow
         'n', 'N', // Negative
     };
@@ -114,9 +110,10 @@ CPU cpu_init(MemoryBus bus) {
         .a = 0,
         .x = 0,
         .y = 0,
-        .pc = 0x0000,
+        .pc = 0,
+        .address_bus = 0,
         .s = 0,
-        .p = FLAG_INTERRUPT_DISABLE,
+        .p = FLAG_INTERRUPT_DISABLE | FLAG__EXPANSION,
         .bus_mode = READ,
         .interrupt_type = RESET,
     };
@@ -377,10 +374,16 @@ void op_ld(CPU* cpu, Op op, u8* reg) {
     assert(cpu->t > 0);
     assert(cpu->bus_mode == READ);
 
-    // TODO: Figure out if this is actually correct or if it fails at immediate
-    // addressing.
-    step_addressing_mode(cpu, op.addr_mode, READ);
-    if (cpu_is_addr_ready(cpu)) {
+    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
+        *reg = cpu->data_bus;
+        cpu_set_zero_negative(cpu, *reg);
+        cpu_advance(cpu);
+        return;
+    }
+
+    if (!cpu_is_addr_ready(cpu)) {
+        step_addressing_mode(cpu, op.addr_mode, READ);
+    } else {
         *reg = cpu->data_bus;
         cpu_set_zero_negative(cpu, *reg);
         cpu_advance(cpu);
@@ -404,10 +407,13 @@ void op_st(CPU* cpu, Op op, u8* reg) {
     }
 }
 
-void op_transfer(CPU* cpu, Op op, u8 left, u8* right) {
+void op_transfer(CPU* cpu, Op op, u8 left, u8* right, b8 set_flags) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
     *right = left;
-    cpu_set_zero_negative(cpu, *right);
+
+    if (set_flags) {
+        cpu_set_zero_negative(cpu, *right);
+    }
 
     cpu->pc--;
     cpu_advance(cpu);
@@ -416,46 +422,100 @@ void op_transfer(CPU* cpu, Op op, u8 left, u8* right) {
 void op_adc(CPU* cpu, Op op) {
     assert(cpu->t > 0);
 
-    step_addressing_mode(cpu, op.addr_mode, READ);
+    if (!cpu_is_addr_ready(cpu)) {
+        step_addressing_mode(cpu, op.addr_mode, READ);
+    } else {
+        if (!cpu_get_status_flag(cpu, FLAG_DECIMAL)) {
+            u16 result = cpu->a + cpu->data_bus + cpu_get_status_flag(cpu, FLAG_CARRY);
 
-    if (cpu_is_addr_ready(cpu)) {
-        u16 result = cpu->a + cpu->data_bus + cpu_get_status_flag(cpu, FLAG_CARRY);
+            u8 result_sign = get_bit(result, 7);
+            u8 a_sign = get_bit(cpu->a, 7);
+            u8 memory_sign = get_bit(cpu->data_bus, 7);
+            b8 overflow = result_sign != a_sign && result_sign != memory_sign;
 
-        u8 result_sign = get_bit(result, 7);
-        u8 a_sign = get_bit(cpu->a, 7);
-        u8 memory_sign = get_bit(cpu->data_bus, 7);
-        b8 overflow = result_sign != a_sign && result_sign != memory_sign;
+            cpu->a = result;
 
-        cpu->a = result;
+            cpu_set_status_flag(cpu, FLAG_CARRY, result > 0xFF);
+            cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
+            cpu_set_zero_negative(cpu, result);
 
-        cpu_set_status_flag(cpu, FLAG_CARRY, result > 0xFF);
-        cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
-        cpu_set_zero_negative(cpu, result);
+            cpu_advance(cpu);
+        } else {
+            u8 lhs_low  = cpu->a & 0x0F;
+            u8 lhs_high = (cpu->a & 0xF0) >> 4;
+            u8 rhs_low  = cpu->data_bus & 0x0F;
+            u8 rhs_high = (cpu->data_bus & 0xF0) >> 4;
 
-        cpu_advance(cpu);
+            u8 low_sum = lhs_low + rhs_low + cpu_get_status_flag(cpu, FLAG_CARRY);
+            u8 high_sum = lhs_high + rhs_high;
+            if (low_sum >= 10) {
+                high_sum++;
+                low_sum -= 10;
+            }
+            cpu_set_status_flag(cpu, FLAG_CARRY, high_sum >= 10);
+            if (high_sum >= 10) {
+                high_sum -= 10;
+            }
+
+            cpu->a = low_sum | (high_sum << 4);
+
+            cpu_set_status_flag(cpu, FLAG_OVERFLOW, false);
+            cpu_set_status_flag(cpu, FLAG_NEGATIVE, false);
+            cpu_set_status_flag(cpu, FLAG_ZERO, cpu->a == 0);
+
+            cpu_advance(cpu);
+        }
     }
 }
 
 void op_sbc(CPU* cpu, Op op) {
     assert(cpu->t > 0);
 
-    step_addressing_mode(cpu, op.addr_mode, READ);
+    if (!cpu_is_addr_ready(cpu)) {
+        step_addressing_mode(cpu, op.addr_mode, READ);
+    } else {
+        if (!cpu_get_status_flag(cpu, FLAG_DECIMAL)) {
+            i16 result = cpu->a + ~cpu->data_bus + cpu_get_status_flag(cpu, FLAG_CARRY);
 
-    if (cpu_is_addr_ready(cpu)) {
-        i8 result = cpu->a + ~cpu->data_bus + cpu_get_status_flag(cpu, FLAG_CARRY);
+            u8 result_sign = get_bit(result, 7);
+            u8 a_sign = get_bit(cpu->a, 7);
+            u8 memory_sign = get_bit(cpu->data_bus, 7);
+            b8 overflow = result_sign != a_sign && result_sign == memory_sign;
 
-        u8 result_sign = get_bit(result, 7);
-        u8 a_sign = get_bit(cpu->a, 7);
-        u8 memory_sign = get_bit(cpu->data_bus, 7);
-        b8 overflow = result_sign != a_sign && result_sign != memory_sign;
+            cpu->a = result & 0xFF;
 
-        cpu->a = result;
+            cpu_set_status_flag(cpu, FLAG_CARRY, result >= 0);
+            cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
+            cpu_set_zero_negative(cpu, result);
 
-        cpu_set_status_flag(cpu, FLAG_CARRY, result >= 0);
-        cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
-        cpu_set_zero_negative(cpu, result);
+            cpu_advance(cpu);
+        } else {
+            u8 lhs_low  = cpu->a & 0x0F;
+            u8 lhs_high = cpu->a >> 4;
 
-        cpu_advance(cpu);
+            u8 rhs_low  = cpu->data_bus & 0x0F;
+            u8 rhs_high = cpu->data_bus >> 4;
+
+            i8 diff_low = lhs_low - rhs_low - !cpu_get_status_flag(cpu, FLAG_CARRY);
+            i8 diff_high = lhs_high - rhs_high;
+
+            if (diff_low < 0) {
+                diff_high--;
+                diff_low += 10;
+            }
+            cpu_set_status_flag(cpu, FLAG_CARRY, diff_high >= 0);
+            if (diff_high < 0) {
+                diff_high += 10;
+            }
+
+            cpu->a = diff_low | (diff_high << 4);
+
+            cpu_set_status_flag(cpu, FLAG_OVERFLOW, false);
+            cpu_set_status_flag(cpu, FLAG_NEGATIVE, false);
+            cpu_set_status_flag(cpu, FLAG_ZERO, cpu->a == 0);
+
+            cpu_advance(cpu);
+        }
     }
 }
 
@@ -464,6 +524,7 @@ typedef void (*rwm_func)(CPU* cpu, u8* memory);
 void op_read_modify_write(CPU* cpu, Op op, rwm_func func) {
     if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
         func(cpu, &cpu->a);
+        cpu->pc--;
         cpu_advance(cpu);
     } else {
         if (!cpu_is_addr_ready(cpu)) {
@@ -601,8 +662,9 @@ void op_bit(CPU* cpu, Op op) {
         step_addressing_mode(cpu, op.addr_mode, READ);
     } else {
         u8 result = cpu->a & cpu->data_bus;
-        cpu_set_zero_negative(cpu, result);
-        cpu_set_status_flag(cpu, FLAG_OVERFLOW, get_bit(result, 6));
+        cpu_set_status_flag(cpu, FLAG_ZERO, result == 0);
+        cpu_set_status_flag(cpu, FLAG_OVERFLOW, get_bit(cpu->data_bus, 6));
+        cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(cpu->data_bus, 7));
         cpu_advance(cpu);
     }
 }
@@ -731,9 +793,6 @@ void op_brk(CPU* cpu, Op op) {
             break;
         // Push pcl
         case 2:
-            // TODO: Check if we should advance the PC when servicing a non-brk
-            // interrupt request.
-            cpu_advance_pc(cpu);
             cpu->bus_mode = WRITE;
             cpu->data_bus = cpu->pc & 0xFF;
             cpu->address_bus = 0x0100 | cpu->s;
@@ -755,6 +814,7 @@ void op_brk(CPU* cpu, Op op) {
         // Fetch adl
         case 4:
             cpu_set_status_flag(cpu, FLAG_INTERRUPT_DISABLE, true);
+            cpu->delay_interrupt_disable = -1;
             cpu->bus_mode = READ;
             switch (cpu->interrupt_type) {
                 case NMI:
@@ -838,7 +898,7 @@ void op_branch(CPU* cpu, Op op, u8 should_branch) {
     switch (cpu->t) {
         case 1:
             if (!should_branch) {
-                cpu_advance_pc(cpu);
+                cpu_advance(cpu);
                 return;
             }
 
@@ -884,8 +944,8 @@ void op_push(CPU* cpu, Op op, u8 value) {
 
     switch (cpu->t) {
         case 1:
-            cpu->s--;
             cpu->address_bus = 0x0100 | cpu->s;
+            cpu->s--;
             cpu->data_bus = value;
             cpu->bus_mode = WRITE;
             cpu->t++;
@@ -898,7 +958,7 @@ void op_push(CPU* cpu, Op op, u8 value) {
     }
 }
 
-u8 op_pull(CPU* cpu, Op op) {
+i16 op_pull(CPU* cpu, Op op) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
 
     switch (cpu->t) {
@@ -917,7 +977,7 @@ u8 op_pull(CPU* cpu, Op op) {
             return cpu->data_bus;
     }
 
-    return 0xEA;
+    return -1;
 }
 
 void cpu_step(CPU* cpu) {
@@ -983,17 +1043,17 @@ void cpu_step(CPU* cpu) {
 
         // Transfer
         case OP_TAX:
-            op_transfer(cpu, op, cpu->a, &cpu->x);
+            op_transfer(cpu, op, cpu->a, &cpu->x, true);
             break;
         case OP_TXA:
-            op_transfer(cpu, op, cpu->x, &cpu->a);
+            op_transfer(cpu, op, cpu->x, &cpu->a, true);
             break;
 
         case OP_TAY:
-            op_transfer(cpu, op, cpu->a, &cpu->y);
+            op_transfer(cpu, op, cpu->a, &cpu->y, true);
             break;
         case OP_TYA:
-            op_transfer(cpu, op, cpu->y, &cpu->a);
+            op_transfer(cpu, op, cpu->y, &cpu->a, true);
             break;
 
         // Arithmetic
@@ -1027,7 +1087,7 @@ void cpu_step(CPU* cpu) {
 
         // Shift
         case OP_ASL:
-            op_read_modify_write(cpu, op, rmw_lsr);
+            op_read_modify_write(cpu, op, rmw_asl);
             break;
         case OP_LSR:
             op_read_modify_write(cpu, op, rmw_lsr);
@@ -1045,6 +1105,12 @@ void cpu_step(CPU* cpu) {
             break;
         case OP_ORA:
             op_ora(cpu, op);
+            break;
+        case OP_EOR:
+            op_eor(cpu, op);
+            break;
+        case OP_BIT:
+            op_bit(cpu, op);
             break;
 
         // Compare
@@ -1112,31 +1178,34 @@ void cpu_step(CPU* cpu) {
             break;
         case OP_PLA:
             cpu->a = op_pull(cpu, op);
+            cpu_set_zero_negative(cpu, cpu->a);
             break;
 
         case OP_PHP:
             op_push(cpu, op, cpu->p | FLAG_BREAK);
             break;
         case OP_PLP: {
-            u8 result = op_pull(cpu, op);
-            // NOTE: This is kind of disgusting but it works :3
-            cpu->delay_interrupt_disable = (result & FLAG_INTERRUPT_DISABLE) != 0;
-            cpu->delay_interrupt_disable = cpu->delay_interrupt_disable*2 + 1;
-            // Clear I
-            result &= ~FLAG_INTERRUPT_DISABLE;
-            // Take the value of current I
-            result |= (cpu->p & FLAG_INTERRUPT_DISABLE);
-            cpu->p = result;
-
-            cpu->pc--;
-            cpu_advance(cpu);
+            i16 result = op_pull(cpu, op);
+            if (result != -1) {
+                cpu->delay_interrupt_disable = (result & FLAG_INTERRUPT_DISABLE) != 0;
+                // Clear I
+                result &= ~FLAG_INTERRUPT_DISABLE;
+                // Clear B
+                result &= ~FLAG_BREAK;
+                // Take the value of current I
+                result |= (cpu->p & FLAG_INTERRUPT_DISABLE);
+                // Expansion is ALWAYS on
+                cpu->p = result | FLAG__EXPANSION;
+                cpu->pc--;
+                cpu_advance(cpu);
+            }
         } break;
 
         case OP_TXS:
-            op_transfer(cpu, op, cpu->x, &cpu->s);
+            op_transfer(cpu, op, cpu->x, &cpu->s, false);
             break;
         case OP_TSX:
-            op_transfer(cpu, op, cpu->s, &cpu->x);
+            op_transfer(cpu, op, cpu->s, &cpu->x, true);
             break;
 
         // Flags
@@ -1152,12 +1221,12 @@ void cpu_step(CPU* cpu) {
             break;
 
         case OP_CLI:
-            cpu->delay_interrupt_disable = 1;
+            cpu->delay_interrupt_disable = 0;
             cpu->pc--;
             cpu_advance(cpu);
             break;
         case OP_SEI:
-            cpu->delay_interrupt_disable = 3;
+            cpu->delay_interrupt_disable = 1;
             cpu->pc--;
             cpu_advance(cpu);
             break;
@@ -1188,8 +1257,11 @@ void cpu_step(CPU* cpu) {
         case OP__UNDEFINED:
             exit(1);
         default:
+            fprintf(stderr, "ERR: Unknown opcode: 0x%02X\n", cpu->ir);
             UNREACHABLE();
     }
+    assert(cpu_get_status_flag(cpu, FLAG__EXPANSION) == 1);
+    assert(cpu_get_status_flag(cpu, FLAG_BREAK) == 0);
 
     cpu->cycle++;
 }

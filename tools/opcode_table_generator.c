@@ -292,6 +292,22 @@ void print_c_table_content(void) {
     }
 }
 
+void print_c_string_table_content(void) {
+    for (u16 column = 0; column < 16; column++) {
+        printf("    // Column %X\n", column);
+        for (u16 row = 0; row < 16; row++) {
+            u16 opcode = (row << 4) | column;
+            Op op = decode_opcode(opcode);
+            if (op.type == OP__UNDEFINED) {
+                printf("    [0x%02X] = \"undefined\",\n", opcode);
+            } else {
+                printf("    [0x%02X] = \"%s %s\",\n", opcode, op_pretty_string(op.type),
+                        addr_mode_pretty_string(op.addr_mode));
+            }
+        }
+    }
+}
+
 void emit_c(const char* program) {
     printf("// =============================================================================\n");
     printf("// THIS FILE WAS GENERATED - DO NOT EDIT\n"); 
@@ -300,15 +316,24 @@ void emit_c(const char* program) {
     printf("// [Reference](https://en.wikipedia.org/wiki/MOS_Technology_6502#Instruction_table)\n");
     printf("// =============================================================================\n");
     printf("\n");
+
     printf("#ifndef OPCODE_TABLE_H\n");
     printf("#define OPCODE_TABLE_H\n");
     printf("\n");
+
     printf("#include \"nes/op.h\"\n");
     printf("\n");
+
     printf("static const Op OPCODE_TABLE[256] = {\n");
     print_c_table_content();
     printf("};\n");
     printf("\n");
+
+    printf("static const char* OPCODE_STRING_TABLE[256] = {\n");
+    print_c_string_table_content();
+    printf("};\n");
+    printf("\n");
+
     printf("#endif // OPCODE_TABLE_H\n");
 
     fflush(stdout);
