@@ -131,10 +131,7 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
         case ADDR_MODE_ACCUMULATOR:
             UNREACHABLE();
         case ADDR_MODE_IMMEDIATE:
-            cpu->addr_ready_t = cpu->t;
-            cpu->t++;
-            break;
-            // UNREACHABLE();
+            UNREACHABLE();
         case ADDR_MODE_ZERO_PAGE:
             // Read effective address
             if (cpu->t == 1) {
@@ -370,24 +367,31 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
     }
 }
 
-void op_ld(CPU* cpu, Op op, u8* reg) {
+typedef void (*GroupOneFunc)(CPU* cpu, void* ctx);
+
+void op_group_one(CPU* cpu, Op op, GroupOneFunc func, void* ctx) {
     assert(cpu->t > 0);
     assert(cpu->bus_mode == READ);
 
     if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
-        *reg = cpu->data_bus;
-        cpu_set_zero_negative(cpu, *reg);
+        func(cpu, ctx);
         cpu_advance(cpu);
         return;
     }
 
     if (!cpu_is_addr_ready(cpu)) {
-        step_addressing_mode(cpu, op.addr_mode, READ);
-    } else {
-        *reg = cpu->data_bus;
-        cpu_set_zero_negative(cpu, *reg);
-        cpu_advance(cpu);
+        step_addressing_mode(cpu, op.addr_mode, WRITE);
+        return;
     }
+
+    func(cpu, ctx);
+    cpu_advance(cpu);
+}
+
+void op_ld(CPU* cpu, void* ctx) {
+    u8* reg = ctx;
+    *reg = cpu->data_bus;
+    cpu_set_zero_negative(cpu, *reg);
 }
 
 void op_st(CPU* cpu, Op op, u8* reg) {
@@ -419,129 +423,115 @@ void op_transfer(CPU* cpu, Op op, u8 left, u8* right, b8 set_flags) {
     cpu_advance(cpu);
 }
 
-void op_adc(CPU* cpu, Op op) {
-    assert(cpu->t > 0);
+void op_adc(CPU* cpu, void* ctx) {
+    (void) ctx;
 
-    if (!cpu_is_addr_ready(cpu)) {
-        step_addressing_mode(cpu, op.addr_mode, READ);
+    if (!cpu_get_status_flag(cpu, FLAG_DECIMAL)) {
+        u16 result = cpu->a + cpu->data_bus + cpu_get_status_flag(cpu, FLAG_CARRY);
+
+        u8 result_sign = get_bit(result, 7);
+        u8 a_sign = get_bit(cpu->a, 7);
+        u8 memory_sign = get_bit(cpu->data_bus, 7);
+        b8 overflow = result_sign != a_sign && result_sign != memory_sign;
+
+        cpu->a = result;
+
+        cpu_set_status_flag(cpu, FLAG_CARRY, result > 0xFF);
+        cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
+        cpu_set_zero_negative(cpu, result);
     } else {
-        if (!cpu_get_status_flag(cpu, FLAG_DECIMAL)) {
-            u16 result = cpu->a + cpu->data_bus + cpu_get_status_flag(cpu, FLAG_CARRY);
+        u8 lhs_low  = cpu->a & 0x0F;
+        u8 lhs_high = (cpu->a & 0xF0) >> 4;
+        u8 rhs_low  = cpu->data_bus & 0x0F;
+        u8 rhs_high = (cpu->data_bus & 0xF0) >> 4;
 
-            u8 result_sign = get_bit(result, 7);
-            u8 a_sign = get_bit(cpu->a, 7);
-            u8 memory_sign = get_bit(cpu->data_bus, 7);
-            b8 overflow = result_sign != a_sign && result_sign != memory_sign;
-
-            cpu->a = result;
-
-            cpu_set_status_flag(cpu, FLAG_CARRY, result > 0xFF);
-            cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
-            cpu_set_zero_negative(cpu, result);
-
-            cpu_advance(cpu);
-        } else {
-            u8 lhs_low  = cpu->a & 0x0F;
-            u8 lhs_high = (cpu->a & 0xF0) >> 4;
-            u8 rhs_low  = cpu->data_bus & 0x0F;
-            u8 rhs_high = (cpu->data_bus & 0xF0) >> 4;
-
-            u8 low_sum = lhs_low + rhs_low + cpu_get_status_flag(cpu, FLAG_CARRY);
-            u8 high_sum = lhs_high + rhs_high;
-            if (low_sum >= 10) {
-                high_sum++;
-                low_sum -= 10;
-            }
-            cpu_set_status_flag(cpu, FLAG_CARRY, high_sum >= 10);
-            if (high_sum >= 10) {
-                high_sum -= 10;
-            }
-
-            cpu->a = low_sum | (high_sum << 4);
-
-            cpu_set_status_flag(cpu, FLAG_OVERFLOW, false);
-            cpu_set_status_flag(cpu, FLAG_NEGATIVE, false);
-            cpu_set_status_flag(cpu, FLAG_ZERO, cpu->a == 0);
-
-            cpu_advance(cpu);
+        u8 low_sum = lhs_low + rhs_low + cpu_get_status_flag(cpu, FLAG_CARRY);
+        u8 high_sum = lhs_high + rhs_high;
+        if (low_sum >= 10) {
+            high_sum++;
+            low_sum -= 10;
         }
+        cpu_set_status_flag(cpu, FLAG_CARRY, high_sum >= 10);
+        if (high_sum >= 10) {
+            high_sum -= 10;
+        }
+
+        cpu->a = low_sum | (high_sum << 4);
+
+        cpu_set_status_flag(cpu, FLAG_OVERFLOW, false);
+        cpu_set_status_flag(cpu, FLAG_NEGATIVE, false);
+        cpu_set_status_flag(cpu, FLAG_ZERO, cpu->a == 0);
     }
 }
 
-void op_sbc(CPU* cpu, Op op) {
-    assert(cpu->t > 0);
+void op_sbc(CPU* cpu, void* ctx) {
+    (void) ctx;
 
-    if (!cpu_is_addr_ready(cpu)) {
-        step_addressing_mode(cpu, op.addr_mode, READ);
+    if (!cpu_get_status_flag(cpu, FLAG_DECIMAL)) {
+        i16 result = cpu->a + ~cpu->data_bus + cpu_get_status_flag(cpu, FLAG_CARRY);
+
+        u8 result_sign = get_bit(result, 7);
+        u8 a_sign = get_bit(cpu->a, 7);
+        u8 memory_sign = get_bit(cpu->data_bus, 7);
+        b8 overflow = result_sign != a_sign && result_sign == memory_sign;
+
+        cpu->a = result & 0xFF;
+
+        cpu_set_status_flag(cpu, FLAG_CARRY, result >= 0);
+        cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
+        cpu_set_zero_negative(cpu, result);
     } else {
-        if (!cpu_get_status_flag(cpu, FLAG_DECIMAL)) {
-            i16 result = cpu->a + ~cpu->data_bus + cpu_get_status_flag(cpu, FLAG_CARRY);
+        u8 lhs_low  = cpu->a & 0x0F;
+        u8 lhs_high = cpu->a >> 4;
 
-            u8 result_sign = get_bit(result, 7);
-            u8 a_sign = get_bit(cpu->a, 7);
-            u8 memory_sign = get_bit(cpu->data_bus, 7);
-            b8 overflow = result_sign != a_sign && result_sign == memory_sign;
+        u8 rhs_low  = cpu->data_bus & 0x0F;
+        u8 rhs_high = cpu->data_bus >> 4;
 
-            cpu->a = result & 0xFF;
+        i8 diff_low = lhs_low - rhs_low - !cpu_get_status_flag(cpu, FLAG_CARRY);
+        i8 diff_high = lhs_high - rhs_high;
 
-            cpu_set_status_flag(cpu, FLAG_CARRY, result >= 0);
-            cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
-            cpu_set_zero_negative(cpu, result);
-
-            cpu_advance(cpu);
-        } else {
-            u8 lhs_low  = cpu->a & 0x0F;
-            u8 lhs_high = cpu->a >> 4;
-
-            u8 rhs_low  = cpu->data_bus & 0x0F;
-            u8 rhs_high = cpu->data_bus >> 4;
-
-            i8 diff_low = lhs_low - rhs_low - !cpu_get_status_flag(cpu, FLAG_CARRY);
-            i8 diff_high = lhs_high - rhs_high;
-
-            if (diff_low < 0) {
-                diff_high--;
-                diff_low += 10;
-            }
-            cpu_set_status_flag(cpu, FLAG_CARRY, diff_high >= 0);
-            if (diff_high < 0) {
-                diff_high += 10;
-            }
-
-            cpu->a = diff_low | (diff_high << 4);
-
-            cpu_set_status_flag(cpu, FLAG_OVERFLOW, false);
-            cpu_set_status_flag(cpu, FLAG_NEGATIVE, false);
-            cpu_set_status_flag(cpu, FLAG_ZERO, cpu->a == 0);
-
-            cpu_advance(cpu);
+        if (diff_low < 0) {
+            diff_high--;
+            diff_low += 10;
         }
+        cpu_set_status_flag(cpu, FLAG_CARRY, diff_high >= 0);
+        if (diff_high < 0) {
+            diff_high += 10;
+        }
+
+        cpu->a = diff_low | (diff_high << 4);
+
+        cpu_set_status_flag(cpu, FLAG_OVERFLOW, false);
+        cpu_set_status_flag(cpu, FLAG_NEGATIVE, false);
+        cpu_set_status_flag(cpu, FLAG_ZERO, cpu->a == 0);
     }
 }
 
-typedef void (*rwm_func)(CPU* cpu, u8* memory);
+typedef void (*RmwFunc)(CPU* cpu, u8* memory);
 
-void op_read_modify_write(CPU* cpu, Op op, rwm_func func) {
+void op_read_modify_write(CPU* cpu, Op op, RmwFunc func) {
     if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
         func(cpu, &cpu->a);
         cpu->pc--;
         cpu_advance(cpu);
-    } else {
-        if (!cpu_is_addr_ready(cpu)) {
-            step_addressing_mode(cpu, op.addr_mode, WRITE);
-        } else {
-            if (cpu->t == cpu->addr_ready_t + 1) {
-                // cpu->data_bus = cpu->data_bus;
-                cpu->bus_mode = WRITE;
-                cpu->t++;
-            } else if (cpu->t == cpu->addr_ready_t + 2) {
-                cpu->bus_mode = WRITE;
-                func(cpu, &cpu->data_bus);
-                cpu->t++;
-            } else if (cpu->t == cpu->addr_ready_t + 3) {
-                cpu_advance(cpu);
-            }
-        }
+        return;
+    }
+
+    if (!cpu_is_addr_ready(cpu)) {
+        step_addressing_mode(cpu, op.addr_mode, WRITE);
+        return;
+    }
+
+    if (cpu->t == cpu->addr_ready_t + 1) {
+        // cpu->data_bus = cpu->data_bus;
+        cpu->bus_mode = WRITE;
+        cpu->t++;
+    } else if (cpu->t == cpu->addr_ready_t + 2) {
+        cpu->bus_mode = WRITE;
+        func(cpu, &cpu->data_bus);
+        cpu->t++;
+    } else if (cpu->t == cpu->addr_ready_t + 3) {
+        cpu_advance(cpu);
     }
 }
 
@@ -605,87 +595,37 @@ void rmw_ror(CPU* cpu, u8* memory) {
     cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
 }
 
-void op_and(CPU* cpu, Op op) {
-    // TODO: Figure out a nicer way to handle immediate addressing.
-    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
-        cpu->a &= cpu->data_bus;
-        cpu_set_zero_negative(cpu, cpu->a);
-        cpu_advance(cpu);
-        return;
-    }
-
-    if (!cpu_is_addr_ready(cpu)) {
-        step_addressing_mode(cpu, op.addr_mode, READ);
-    } else {
-        cpu->a &= cpu->data_bus;
-        cpu_set_zero_negative(cpu, cpu->a);
-        cpu_advance(cpu);
-    }
+void op_and(CPU* cpu, void* ctx) {
+    (void) ctx;
+    cpu->a &= cpu->data_bus;
+    cpu_set_zero_negative(cpu, cpu->a);
 }
 
-void op_ora(CPU* cpu, Op op) {
-    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
-        cpu->a |= cpu->data_bus;
-        cpu_set_zero_negative(cpu, cpu->a);
-        cpu_advance(cpu);
-        return;
-    }
-
-    if (!cpu_is_addr_ready(cpu)) {
-        step_addressing_mode(cpu, op.addr_mode, READ);
-    } else {
-        cpu->a |= cpu->data_bus;
-        cpu_set_zero_negative(cpu, cpu->a);
-        cpu_advance(cpu);
-    }
+void op_ora(CPU* cpu, void* ctx) {
+    (void) ctx;
+    cpu->a |= cpu->data_bus;
+    cpu_set_zero_negative(cpu, cpu->a);
 }
 
-void op_eor(CPU* cpu, Op op) {
-    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
-        cpu->a ^= cpu->data_bus;
-        cpu_set_zero_negative(cpu, cpu->a);
-        cpu_advance(cpu);
-        return;
-    }
-
-    if (!cpu_is_addr_ready(cpu)) {
-        step_addressing_mode(cpu, op.addr_mode, READ);
-    } else {
-        cpu->a ^= cpu->data_bus;
-        cpu_set_zero_negative(cpu, cpu->a);
-        cpu_advance(cpu);
-    }
+void op_eor(CPU* cpu, void* ctx) {
+    (void) ctx;
+    cpu->a ^= cpu->data_bus;
+    cpu_set_zero_negative(cpu, cpu->a);
 }
 
-void op_bit(CPU* cpu, Op op) {
-    if (!cpu_is_addr_ready(cpu)) {
-        step_addressing_mode(cpu, op.addr_mode, READ);
-    } else {
-        u8 result = cpu->a & cpu->data_bus;
-        cpu_set_status_flag(cpu, FLAG_ZERO, result == 0);
-        cpu_set_status_flag(cpu, FLAG_OVERFLOW, get_bit(cpu->data_bus, 6));
-        cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(cpu->data_bus, 7));
-        cpu_advance(cpu);
-    }
+void op_bit(CPU* cpu, void* ctx) {
+    (void) ctx;
+    u8 result = cpu->a & cpu->data_bus;
+    cpu_set_status_flag(cpu, FLAG_ZERO, result == 0);
+    cpu_set_status_flag(cpu, FLAG_OVERFLOW, get_bit(cpu->data_bus, 6));
+    cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(cpu->data_bus, 7));
 }
 
-void op_cmp(CPU* cpu, Op op, u8 reg) {
-    if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
-        cpu_set_status_flag(cpu, FLAG_CARRY, reg >= cpu->data_bus);
-        cpu_set_status_flag(cpu, FLAG_ZERO, reg == cpu->data_bus);
-        cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(reg - cpu->data_bus, 7));
-        cpu_advance(cpu);
-        return;
-    }
-
-    if (!cpu_is_addr_ready(cpu)) {
-        step_addressing_mode(cpu, op.addr_mode, READ);
-    } else {
-        cpu_set_status_flag(cpu, FLAG_CARRY, reg >= cpu->data_bus);
-        cpu_set_status_flag(cpu, FLAG_ZERO, reg == cpu->data_bus);
-        cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(reg - cpu->data_bus, 7));
-        cpu_advance(cpu);
-    }
+void op_cmp(CPU* cpu, void* ctx) {
+    u8* reg = ctx;
+    cpu_set_status_flag(cpu, FLAG_CARRY, *reg >= cpu->data_bus);
+    cpu_set_status_flag(cpu, FLAG_ZERO, *reg == cpu->data_bus);
+    cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(*reg - cpu->data_bus, 7));
 }
 
 void op_jmp(CPU* cpu, Op op) {
@@ -1021,21 +961,21 @@ void cpu_step(CPU* cpu) {
     switch (op.type) {
         // Access
         case OP_LDA:
-            op_ld(cpu, op, &cpu->a);
+            op_group_one(cpu, op, op_ld, &cpu->a);
             break;
         case OP_STA:
             op_st(cpu, op, &cpu->a);
             break;
 
         case OP_LDX:
-            op_ld(cpu, op, &cpu->x);
+            op_group_one(cpu, op, op_ld, &cpu->x);
             break;
         case OP_STX:
             op_st(cpu, op, &cpu->x);
             break;
 
         case OP_LDY:
-            op_ld(cpu, op, &cpu->y);
+            op_group_one(cpu, op, op_ld, &cpu->y);
             break;
         case OP_STY:
             op_st(cpu, op, &cpu->y);
@@ -1058,10 +998,10 @@ void cpu_step(CPU* cpu) {
 
         // Arithmetic
         case OP_ADC:
-            op_adc(cpu, op);
+            op_group_one(cpu, op, op_adc, NULL);
             break;
         case OP_SBC:
-            op_sbc(cpu, op);
+            op_group_one(cpu, op, op_sbc, NULL);
             break;
 
         case OP_INC:
@@ -1101,27 +1041,27 @@ void cpu_step(CPU* cpu) {
 
         // Bitwise
         case OP_AND:
-            op_and(cpu, op);
+            op_group_one(cpu, op, op_and, NULL);
             break;
         case OP_ORA:
-            op_ora(cpu, op);
+            op_group_one(cpu, op, op_ora, NULL);
             break;
         case OP_EOR:
-            op_eor(cpu, op);
+            op_group_one(cpu, op, op_eor, NULL);
             break;
         case OP_BIT:
-            op_bit(cpu, op);
+            op_group_one(cpu, op, op_bit, NULL);
             break;
 
         // Compare
         case OP_CMP:
-            op_cmp(cpu, op, cpu->a);
+            op_group_one(cpu, op, op_cmp, &cpu->a);
             break;
         case OP_CPX:
-            op_cmp(cpu, op, cpu->x);
+            op_group_one(cpu, op, op_cmp, &cpu->x);
             break;
         case OP_CPY:
-            op_cmp(cpu, op, cpu->y);
+            op_group_one(cpu, op, op_cmp, &cpu->y);
             break;
 
         // Branch
