@@ -285,7 +285,7 @@ static const Op OPCODE_TABLE[256] = {
     [0xFF] = {OP__UNDEFINED, ADDR_MODE__UNDEFINED},
 };
 
-static const char* OPCODE_STRING_TABLE[256] = {
+static const char* const OPCODE_STRING_TABLE[256] = {
     // Column 0
     [0x00] = "BRK ",
     [0x10] = "BPL rel",

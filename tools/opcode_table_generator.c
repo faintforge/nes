@@ -329,7 +329,7 @@ void emit_c(const char* program) {
     printf("};\n");
     printf("\n");
 
-    printf("static const char* OPCODE_STRING_TABLE[256] = {\n");
+    printf("static const char* const OPCODE_STRING_TABLE[256] = {\n");
     print_c_string_table_content();
     printf("};\n");
     printf("\n");
