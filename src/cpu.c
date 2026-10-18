@@ -35,9 +35,8 @@ static inline void cpu_set_zero_negative(CPU* cpu, u8 value) {
 // Memory operation helpers
 // =============================================================================
 
-// Go to next instruction
-static void cpu_advance(CPU* cpu) {
-    cpu->pc++;
+// Signal instruction is done
+static void cpu_instruction_done(CPU* cpu) {
     cpu->address_bus = cpu->pc;
     cpu->bus_mode = READ;
     cpu->t = 0;
@@ -367,6 +366,10 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
     }
 }
 
+// =============================================================================
+// Group One Instructions
+// =============================================================================
+
 typedef void (*GroupOneFunc)(CPU* cpu, void* ctx);
 
 void op_group_one(CPU* cpu, Op op, GroupOneFunc func, void* ctx) {
@@ -375,7 +378,8 @@ void op_group_one(CPU* cpu, Op op, GroupOneFunc func, void* ctx) {
 
     if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
         func(cpu, ctx);
-        cpu_advance(cpu);
+        cpu_advance_pc(cpu);
+        cpu_instruction_done(cpu);
         return;
     }
 
@@ -385,42 +389,14 @@ void op_group_one(CPU* cpu, Op op, GroupOneFunc func, void* ctx) {
     }
 
     func(cpu, ctx);
-    cpu_advance(cpu);
+    cpu_advance_pc(cpu);
+    cpu_instruction_done(cpu);
 }
 
 void op_ld(CPU* cpu, void* ctx) {
     u8* reg = ctx;
     *reg = cpu->data_bus;
     cpu_set_zero_negative(cpu, *reg);
-}
-
-void op_st(CPU* cpu, Op op, u8* reg) {
-    assert(cpu->t > 0);
-
-    // Addressing is done, instruction is done.
-    if (cpu_is_addr_ready(cpu)) {
-        cpu_advance(cpu);
-        return;
-    }
-
-    step_addressing_mode(cpu, op.addr_mode, WRITE);
-
-    if (cpu_is_addr_ready(cpu)) {
-        cpu->data_bus = *reg;
-        cpu->bus_mode = WRITE;
-    }
-}
-
-void op_transfer(CPU* cpu, Op op, u8 left, u8* right, b8 set_flags) {
-    assert(op.addr_mode == ADDR_MODE_IMPLIED);
-    *right = left;
-
-    if (set_flags) {
-        cpu_set_zero_negative(cpu, *right);
-    }
-
-    cpu->pc--;
-    cpu_advance(cpu);
 }
 
 void op_adc(CPU* cpu, void* ctx) {
@@ -507,94 +483,6 @@ void op_sbc(CPU* cpu, void* ctx) {
     }
 }
 
-typedef void (*RmwFunc)(CPU* cpu, u8* memory);
-
-void op_read_modify_write(CPU* cpu, Op op, RmwFunc func) {
-    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
-        func(cpu, &cpu->a);
-        cpu->pc--;
-        cpu_advance(cpu);
-        return;
-    }
-
-    if (!cpu_is_addr_ready(cpu)) {
-        step_addressing_mode(cpu, op.addr_mode, WRITE);
-        return;
-    }
-
-    if (cpu->t == cpu->addr_ready_t + 1) {
-        // cpu->data_bus = cpu->data_bus;
-        cpu->bus_mode = WRITE;
-        cpu->t++;
-    } else if (cpu->t == cpu->addr_ready_t + 2) {
-        cpu->bus_mode = WRITE;
-        func(cpu, &cpu->data_bus);
-        cpu->t++;
-    } else if (cpu->t == cpu->addr_ready_t + 3) {
-        cpu_advance(cpu);
-    }
-}
-
-void rmw_inc(CPU* cpu, u8* memory) {
-    (*memory)++;
-    cpu_set_zero_negative(cpu, *memory);
-}
-
-void rmw_dec(CPU* cpu, u8* memory) {
-    (*memory)--;
-    cpu_set_zero_negative(cpu, cpu->data_bus);
-}
-
-void op_inc_register(CPU* cpu, Op op, u8* reg) {
-    assert(op.addr_mode == ADDR_MODE_IMPLIED);
-    *reg += 1;
-    cpu_set_zero_negative(cpu, *reg);
-
-    // Implied addressing doesn't read an operand so decrement pc once as to
-    // not skip the next instruction.
-    cpu->pc--;
-    cpu_advance(cpu);
-}
-
-void op_dec_register(CPU* cpu, Op op, u8* reg) {
-    assert(op.addr_mode == ADDR_MODE_IMPLIED);
-    *reg -= 1;
-    cpu_set_zero_negative(cpu, *reg);
-
-    cpu->pc--;
-    cpu_advance(cpu);
-}
-
-void rmw_asl(CPU* cpu, u8* memory) {
-    b8 carry = get_bit(*memory, 7);
-    *memory <<= 1;
-    cpu_set_zero_negative(cpu, *memory);
-    cpu_set_status_flag(cpu, FLAG_CARRY, carry);
-}
-
-void rmw_lsr(CPU* cpu, u8* memory) {
-    b8 carry = *memory & 1;
-    *memory >>= 1;
-    cpu_set_zero_negative(cpu, *memory);
-    cpu_set_status_flag(cpu, FLAG_CARRY, carry);
-}
-
-void rmw_rol(CPU* cpu, u8* memory) {
-    u8 carry = cpu_get_status_flag(cpu, FLAG_CARRY);
-    b8 new_carry = get_bit(*memory, 7);
-    *memory = (*memory << 1) | carry;
-    cpu_set_zero_negative(cpu, *memory);
-    cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
-}
-
-void rmw_ror(CPU* cpu, u8* memory) {
-    u8 carry = cpu_get_status_flag(cpu, FLAG_CARRY);
-    b8 new_carry = *memory & 1;
-    *memory = (*memory >> 1) | (carry << 7);
-    cpu_set_zero_negative(cpu, *memory);
-    cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
-}
-
 void op_and(CPU* cpu, void* ctx) {
     (void) ctx;
     cpu->a &= cpu->data_bus;
@@ -628,13 +516,133 @@ void op_cmp(CPU* cpu, void* ctx) {
     cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(*reg - cpu->data_bus, 7));
 }
 
+// =============================================================================
+// Read-Modify-Write Instructions
+// =============================================================================
+
+typedef void (*RmwFunc)(CPU* cpu, u8* memory);
+
+void op_read_modify_write(CPU* cpu, Op op, RmwFunc func) {
+    if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
+        func(cpu, &cpu->a);
+        cpu_instruction_done(cpu);
+        return;
+    }
+
+    if (!cpu_is_addr_ready(cpu)) {
+        step_addressing_mode(cpu, op.addr_mode, WRITE);
+        return;
+    }
+
+    if (cpu->t == cpu->addr_ready_t + 1) {
+        // cpu->data_bus = cpu->data_bus;
+        cpu->bus_mode = WRITE;
+        cpu->t++;
+    } else if (cpu->t == cpu->addr_ready_t + 2) {
+        cpu->bus_mode = WRITE;
+        func(cpu, &cpu->data_bus);
+        cpu->t++;
+    } else if (cpu->t == cpu->addr_ready_t + 3) {
+        cpu_advance_pc(cpu);
+        cpu_instruction_done(cpu);
+    }
+}
+
+void rmw_inc(CPU* cpu, u8* memory) {
+    (*memory)++;
+    cpu_set_zero_negative(cpu, *memory);
+}
+
+void rmw_dec(CPU* cpu, u8* memory) {
+    (*memory)--;
+    cpu_set_zero_negative(cpu, cpu->data_bus);
+}
+
+void rmw_asl(CPU* cpu, u8* memory) {
+    b8 carry = get_bit(*memory, 7);
+    *memory <<= 1;
+    cpu_set_zero_negative(cpu, *memory);
+    cpu_set_status_flag(cpu, FLAG_CARRY, carry);
+}
+
+void rmw_lsr(CPU* cpu, u8* memory) {
+    b8 carry = *memory & 1;
+    *memory >>= 1;
+    cpu_set_zero_negative(cpu, *memory);
+    cpu_set_status_flag(cpu, FLAG_CARRY, carry);
+}
+
+void rmw_rol(CPU* cpu, u8* memory) {
+    u8 carry = cpu_get_status_flag(cpu, FLAG_CARRY);
+    b8 new_carry = get_bit(*memory, 7);
+    *memory = (*memory << 1) | carry;
+    cpu_set_zero_negative(cpu, *memory);
+    cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
+}
+
+void rmw_ror(CPU* cpu, u8* memory) {
+    u8 carry = cpu_get_status_flag(cpu, FLAG_CARRY);
+    b8 new_carry = *memory & 1;
+    *memory = (*memory >> 1) | (carry << 7);
+    cpu_set_zero_negative(cpu, *memory);
+    cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
+}
+
+// =============================================================================
+// Uncategorized Instructions
+// =============================================================================
+
+void op_inc_register(CPU* cpu, Op op, u8* reg) {
+    assert(op.addr_mode == ADDR_MODE_IMPLIED);
+    *reg += 1;
+    cpu_set_zero_negative(cpu, *reg);
+
+    cpu_instruction_done(cpu);
+}
+
+void op_dec_register(CPU* cpu, Op op, u8* reg) {
+    assert(op.addr_mode == ADDR_MODE_IMPLIED);
+    *reg -= 1;
+    cpu_set_zero_negative(cpu, *reg);
+
+    cpu_instruction_done(cpu);
+}
+
+void op_st(CPU* cpu, Op op, u8* reg) {
+    assert(cpu->t > 0);
+
+    // Addressing is done, instruction is done.
+    if (cpu_is_addr_ready(cpu)) {
+        cpu_advance_pc(cpu);
+        cpu_instruction_done(cpu);
+        return;
+    }
+
+    step_addressing_mode(cpu, op.addr_mode, WRITE);
+
+    if (cpu_is_addr_ready(cpu)) {
+        cpu->data_bus = *reg;
+        cpu->bus_mode = WRITE;
+    }
+}
+
+void op_transfer(CPU* cpu, Op op, u8 left, u8* right, b8 set_flags) {
+    assert(op.addr_mode == ADDR_MODE_IMPLIED);
+    *right = left;
+
+    if (set_flags) {
+        cpu_set_zero_negative(cpu, *right);
+    }
+
+    cpu_instruction_done(cpu);
+}
+
 void op_jmp(CPU* cpu, Op op) {
     step_addressing_mode(cpu, op.addr_mode, READ);
     if (cpu_is_addr_ready(cpu)) {
         u16 address = cpu->address_bus;
-        cpu_advance(cpu);
         cpu->pc = address;
-        cpu->address_bus = address;
+        cpu_instruction_done(cpu);
     }
 }
 
@@ -673,9 +681,8 @@ void op_jsr(CPU* cpu, Op op) {
             break;
         // Fetch adh
         case 5:
-            cpu_advance(cpu);
-            cpu->address_bus = ((u16) cpu->data_bus << 8) | cpu->internal_data;
-            cpu->pc = cpu->address_bus;
+            cpu->pc = ((u16) cpu->data_bus << 8) | cpu->internal_data;
+            cpu_instruction_done(cpu);
             break;
         default:
             UNREACHABLE();
@@ -711,7 +718,8 @@ void op_rts(CPU* cpu, Op op) {
             cpu->t++;
             break;
         case 5:
-            cpu_advance(cpu);
+            cpu_advance_pc(cpu);
+            cpu_instruction_done(cpu);
             break;
         default:
             UNREACHABLE();
@@ -838,7 +846,8 @@ void op_branch(CPU* cpu, Op op, u8 should_branch) {
     switch (cpu->t) {
         case 1:
             if (!should_branch) {
-                cpu_advance(cpu);
+                cpu_advance_pc(cpu);
+                cpu_instruction_done(cpu);
                 return;
             }
 
@@ -868,13 +877,11 @@ void op_branch(CPU* cpu, Op op, u8 should_branch) {
                 cpu->address_bus = cpu->pc;
                 cpu->t++;
             } else {
-                cpu->pc--;
-                cpu_advance(cpu);
+                cpu_instruction_done(cpu);
             }
             break;
         case 3:
-            cpu->pc--;
-            cpu_advance(cpu);
+            cpu_instruction_done(cpu);
             break;
     }
 }
@@ -891,9 +898,7 @@ void op_push(CPU* cpu, Op op, u8 value) {
             cpu->t++;
             break;
         case 2:
-            // TODO: This patterns happens a lot. Find some nicer way to do it.
-            cpu->pc--;
-            cpu_advance(cpu);
+            cpu_instruction_done(cpu);
             break;
     }
 }
@@ -912,8 +917,7 @@ i16 op_pull(CPU* cpu, Op op) {
             cpu->t++;
             break;
         case 3:
-            cpu->pc--;
-            cpu_advance(cpu);
+            cpu_instruction_done(cpu);
             return cpu->data_bus;
     }
 
@@ -1136,8 +1140,7 @@ void cpu_step(CPU* cpu) {
                 result |= (cpu->p & FLAG_INTERRUPT_DISABLE);
                 // Expansion is ALWAYS on
                 cpu->p = result | FLAG__EXPANSION;
-                cpu->pc--;
-                cpu_advance(cpu);
+                cpu_instruction_done(cpu);
             }
         } break;
 
@@ -1151,47 +1154,39 @@ void cpu_step(CPU* cpu) {
         // Flags
         case OP_CLC:
             cpu->p &= ~FLAG_CARRY;
-            cpu->pc--;
-            cpu_advance(cpu);
+            cpu_instruction_done(cpu);
             break;
         case OP_SEC:
             cpu->p |= FLAG_CARRY;
-            cpu->pc--;
-            cpu_advance(cpu);
+            cpu_instruction_done(cpu);
             break;
 
         case OP_CLI:
             cpu->delay_interrupt_disable = 0;
-            cpu->pc--;
-            cpu_advance(cpu);
+            cpu_instruction_done(cpu);
             break;
         case OP_SEI:
             cpu->delay_interrupt_disable = 1;
-            cpu->pc--;
-            cpu_advance(cpu);
+            cpu_instruction_done(cpu);
             break;
 
         case OP_CLD:
             cpu->p &= ~FLAG_DECIMAL;
-            cpu->pc--;
-            cpu_advance(cpu);
+            cpu_instruction_done(cpu);
             break;
         case OP_SED:
             cpu->p |= FLAG_DECIMAL;
-            cpu->pc--;
-            cpu_advance(cpu);
+            cpu_instruction_done(cpu);
             break;
 
         case OP_CLV:
             cpu->p &= ~FLAG_OVERFLOW;
-            cpu->pc--;
-            cpu_advance(cpu);
+            cpu_instruction_done(cpu);
             break;
 
         // Other
         case OP_NOP:
-            cpu->pc--;
-            cpu_advance(cpu);
+            cpu_instruction_done(cpu);
             break;
 
         case OP__UNDEFINED:
