@@ -20,7 +20,7 @@ b8 read_file(const char* filename, u8* output_buffer, u32* length) {
     }
 
     if (_length > *length) {
-        fprintf(stderr, "ERR: Too small buffer to read into.");
+        fprintf(stderr, "ERR: Too small buffer to read into.\n");
         return false;
     }
 

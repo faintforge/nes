@@ -24,10 +24,7 @@ i32 main(void) {
     SDL_CHECK(SDL_CreateWindowAndRenderer("nesemu", 1280, 720, 0, &window, &renderer));
     // SDL_SetWindowResizable(window, true);
 
-    u8 buffer[10000] = {0};
-    u32 buffer_length = sizeof(buffer);
-    read_file("/home/faint/Downloads/2C02G_U_wiki.pal", buffer, &buffer_length);
-    Ppu ppu = ppu_init(buffer, 64*3);
+    Ppu ppu = ppu_init();
     ppu__debug_fill_pixels(&ppu);
 
     for (i32 luma = 0; luma < 4; luma++) {

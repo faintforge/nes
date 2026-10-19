@@ -40,7 +40,8 @@ struct Ppu {
     // RGB format
     u8 pixels[OUTPUT_WIDTH*OUTPUT_HEIGHT*3];
 
-    Color palette[64];
+    Color palette[512];
+    b8 palette_has_emph;
     u8 palette_indices[0x20];
 
     u16 v;
@@ -61,9 +62,13 @@ struct Ppu {
     u8 oam_addr;
 };
 
-extern Ppu ppu_init(u8* palette, u32 palette_size);
+extern Ppu ppu_init(void);
 extern void ppu_step(Ppu* ppu);
 
+// Reads .pal formatted data. Expects 'palette' to be filled with 3-byte long
+// colors in RGB order. 'palette_size' should reflect the byte-count of
+// 'palette', eg. the amount of colors*3.
+extern void ppu_load_palette(Ppu* ppu, const u8* palette, u32 palette_size);
 extern Color ppu_decode_color(const Ppu* ppu, u8 color);
 
 // Write
