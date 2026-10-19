@@ -36,4 +36,7 @@ typedef u32 b32;
 
 #define UNREACHABLE() assert(false && "Unreachable")
 
+#define max(a, b) ((a) > (b) ? (a) : (b))
+#define min(a, b) ((a) < (b) ? (a) : (b))
+
 #endif // COMMON_H
