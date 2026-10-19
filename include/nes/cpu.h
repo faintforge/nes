@@ -36,8 +36,8 @@ enum {
     BRK,
 };
 
-typedef struct CPU CPU;
-struct CPU {
+typedef struct Cpu Cpu;
+struct Cpu {
     MemoryBus bus;
     u8 bus_mode; // r/w
     u16 address_bus;
@@ -77,9 +77,9 @@ struct CPU {
     u64 cycle;
 };
 
-extern CPU cpu_init(MemoryBus bus);
-extern void cpu_reset(CPU* cpu);
+extern Cpu cpu_init(MemoryBus bus);
+extern void cpu_reset(Cpu* cpu);
 
-extern void cpu_step(CPU* cpu);
+extern void cpu_step(Cpu* cpu);
 
 #endif // CPU_H

@@ -13,7 +13,7 @@
 // Status flag helpers
 // =============================================================================
 
-static inline void cpu_set_status_flag(CPU* cpu, u8 flag, b8 value) {
+static inline void cpu_set_status_flag(Cpu* cpu, u8 flag, b8 value) {
     if (value) {
         cpu->p |= flag;
     } else {
@@ -21,12 +21,12 @@ static inline void cpu_set_status_flag(CPU* cpu, u8 flag, b8 value) {
     }
 }
 
-static inline b8 cpu_get_status_flag(CPU* cpu, u8 flag) {
+static inline b8 cpu_get_status_flag(Cpu* cpu, u8 flag) {
     return (cpu->p & flag) != 0;
 }
 
 
-static inline void cpu_set_zero_negative(CPU* cpu, u8 value) {
+static inline void cpu_set_zero_negative(Cpu* cpu, u8 value) {
     cpu_set_status_flag(cpu, FLAG_ZERO, value == 0);
     cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(value, 7));
 }
@@ -36,7 +36,7 @@ static inline void cpu_set_zero_negative(CPU* cpu, u8 value) {
 // =============================================================================
 
 // Signal instruction is done
-static void cpu_instruction_done(CPU* cpu) {
+static void cpu_instruction_done(Cpu* cpu) {
     cpu->address_bus = cpu->pc;
     cpu->bus_mode = READ;
     cpu->t = 0;
@@ -70,12 +70,12 @@ static void cpu_instruction_done(CPU* cpu) {
 }
 
 // Advance PC only
-static void cpu_advance_pc(CPU* cpu) {
+static void cpu_advance_pc(Cpu* cpu) {
     cpu->pc++;
     cpu->address_bus = cpu->pc;
 }
 
-static b8 cpu_is_addr_ready(CPU* cpu) {
+static b8 cpu_is_addr_ready(Cpu* cpu) {
     return cpu->addr_ready_t != 0;
 }
 
@@ -101,10 +101,10 @@ void print_cpu_status(u8 status) {
     putchar('\n');
 }
 
-CPU cpu_init(MemoryBus bus) {
+Cpu cpu_init(MemoryBus bus) {
     // [Power up state](https://www.nesdev.org/wiki/CPU_power_up_state)
     // [Memory map](https://www.nesdev.org/wiki/CPU_memory_map)
-    CPU cpu = {
+    Cpu cpu = {
         .bus = bus,
         .a = 0,
         .x = 0,
@@ -120,7 +120,7 @@ CPU cpu_init(MemoryBus bus) {
     return cpu;
 }
 
-void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
+void step_addressing_mode(Cpu* cpu, AddrMode addr_mode, u8 bus_op_type) {
     assert(cpu->t != 0);
     if (cpu_is_addr_ready(cpu)) {
         return;
@@ -370,9 +370,9 @@ void step_addressing_mode(CPU* cpu, AddrMode addr_mode, u8 bus_op_type) {
 // Group One Instructions
 // =============================================================================
 
-typedef void (*GroupOneFunc)(CPU* cpu, void* ctx);
+typedef void (*GroupOneFunc)(Cpu* cpu, void* ctx);
 
-void op_group_one(CPU* cpu, Op op, GroupOneFunc func, void* ctx) {
+void op_group_one(Cpu* cpu, Op op, GroupOneFunc func, void* ctx) {
     assert(cpu->t > 0);
     assert(cpu->bus_mode == READ);
 
@@ -393,13 +393,13 @@ void op_group_one(CPU* cpu, Op op, GroupOneFunc func, void* ctx) {
     cpu_instruction_done(cpu);
 }
 
-void op_ld(CPU* cpu, void* ctx) {
+void op_ld(Cpu* cpu, void* ctx) {
     u8* reg = ctx;
     *reg = cpu->data_bus;
     cpu_set_zero_negative(cpu, *reg);
 }
 
-void op_adc(CPU* cpu, void* ctx) {
+void op_adc(Cpu* cpu, void* ctx) {
     (void) ctx;
 
     if (!cpu_get_status_flag(cpu, FLAG_DECIMAL)) {
@@ -440,7 +440,7 @@ void op_adc(CPU* cpu, void* ctx) {
     }
 }
 
-void op_sbc(CPU* cpu, void* ctx) {
+void op_sbc(Cpu* cpu, void* ctx) {
     (void) ctx;
 
     if (!cpu_get_status_flag(cpu, FLAG_DECIMAL)) {
@@ -483,25 +483,25 @@ void op_sbc(CPU* cpu, void* ctx) {
     }
 }
 
-void op_and(CPU* cpu, void* ctx) {
+void op_and(Cpu* cpu, void* ctx) {
     (void) ctx;
     cpu->a &= cpu->data_bus;
     cpu_set_zero_negative(cpu, cpu->a);
 }
 
-void op_ora(CPU* cpu, void* ctx) {
+void op_ora(Cpu* cpu, void* ctx) {
     (void) ctx;
     cpu->a |= cpu->data_bus;
     cpu_set_zero_negative(cpu, cpu->a);
 }
 
-void op_eor(CPU* cpu, void* ctx) {
+void op_eor(Cpu* cpu, void* ctx) {
     (void) ctx;
     cpu->a ^= cpu->data_bus;
     cpu_set_zero_negative(cpu, cpu->a);
 }
 
-void op_bit(CPU* cpu, void* ctx) {
+void op_bit(Cpu* cpu, void* ctx) {
     (void) ctx;
     u8 result = cpu->a & cpu->data_bus;
     cpu_set_status_flag(cpu, FLAG_ZERO, result == 0);
@@ -509,7 +509,7 @@ void op_bit(CPU* cpu, void* ctx) {
     cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(cpu->data_bus, 7));
 }
 
-void op_cmp(CPU* cpu, void* ctx) {
+void op_cmp(Cpu* cpu, void* ctx) {
     u8* reg = ctx;
     cpu_set_status_flag(cpu, FLAG_CARRY, *reg >= cpu->data_bus);
     cpu_set_status_flag(cpu, FLAG_ZERO, *reg == cpu->data_bus);
@@ -520,9 +520,9 @@ void op_cmp(CPU* cpu, void* ctx) {
 // Read-Modify-Write Instructions
 // =============================================================================
 
-typedef void (*RmwFunc)(CPU* cpu, u8* memory);
+typedef void (*RmwFunc)(Cpu* cpu, u8* memory);
 
-void op_read_modify_write(CPU* cpu, Op op, RmwFunc func) {
+void op_read_modify_write(Cpu* cpu, Op op, RmwFunc func) {
     if (op.addr_mode == ADDR_MODE_ACCUMULATOR) {
         func(cpu, &cpu->a);
         cpu_instruction_done(cpu);
@@ -548,31 +548,31 @@ void op_read_modify_write(CPU* cpu, Op op, RmwFunc func) {
     }
 }
 
-void rmw_inc(CPU* cpu, u8* memory) {
+void rmw_inc(Cpu* cpu, u8* memory) {
     (*memory)++;
     cpu_set_zero_negative(cpu, *memory);
 }
 
-void rmw_dec(CPU* cpu, u8* memory) {
+void rmw_dec(Cpu* cpu, u8* memory) {
     (*memory)--;
     cpu_set_zero_negative(cpu, cpu->data_bus);
 }
 
-void rmw_asl(CPU* cpu, u8* memory) {
+void rmw_asl(Cpu* cpu, u8* memory) {
     b8 carry = get_bit(*memory, 7);
     *memory <<= 1;
     cpu_set_zero_negative(cpu, *memory);
     cpu_set_status_flag(cpu, FLAG_CARRY, carry);
 }
 
-void rmw_lsr(CPU* cpu, u8* memory) {
+void rmw_lsr(Cpu* cpu, u8* memory) {
     b8 carry = *memory & 1;
     *memory >>= 1;
     cpu_set_zero_negative(cpu, *memory);
     cpu_set_status_flag(cpu, FLAG_CARRY, carry);
 }
 
-void rmw_rol(CPU* cpu, u8* memory) {
+void rmw_rol(Cpu* cpu, u8* memory) {
     u8 carry = cpu_get_status_flag(cpu, FLAG_CARRY);
     b8 new_carry = get_bit(*memory, 7);
     *memory = (*memory << 1) | carry;
@@ -580,7 +580,7 @@ void rmw_rol(CPU* cpu, u8* memory) {
     cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
 }
 
-void rmw_ror(CPU* cpu, u8* memory) {
+void rmw_ror(Cpu* cpu, u8* memory) {
     u8 carry = cpu_get_status_flag(cpu, FLAG_CARRY);
     b8 new_carry = *memory & 1;
     *memory = (*memory >> 1) | (carry << 7);
@@ -592,7 +592,7 @@ void rmw_ror(CPU* cpu, u8* memory) {
 // Uncategorized Instructions
 // =============================================================================
 
-void op_inc_register(CPU* cpu, Op op, u8* reg) {
+void op_inc_register(Cpu* cpu, Op op, u8* reg) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
     *reg += 1;
     cpu_set_zero_negative(cpu, *reg);
@@ -600,7 +600,7 @@ void op_inc_register(CPU* cpu, Op op, u8* reg) {
     cpu_instruction_done(cpu);
 }
 
-void op_dec_register(CPU* cpu, Op op, u8* reg) {
+void op_dec_register(Cpu* cpu, Op op, u8* reg) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
     *reg -= 1;
     cpu_set_zero_negative(cpu, *reg);
@@ -608,7 +608,7 @@ void op_dec_register(CPU* cpu, Op op, u8* reg) {
     cpu_instruction_done(cpu);
 }
 
-void op_st(CPU* cpu, Op op, u8* reg) {
+void op_st(Cpu* cpu, Op op, u8* reg) {
     assert(cpu->t > 0);
 
     // Addressing is done, instruction is done.
@@ -626,7 +626,7 @@ void op_st(CPU* cpu, Op op, u8* reg) {
     }
 }
 
-void op_transfer(CPU* cpu, Op op, u8 left, u8* right, b8 set_flags) {
+void op_transfer(Cpu* cpu, Op op, u8 left, u8* right, b8 set_flags) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
     *right = left;
 
@@ -637,7 +637,7 @@ void op_transfer(CPU* cpu, Op op, u8 left, u8* right, b8 set_flags) {
     cpu_instruction_done(cpu);
 }
 
-void op_jmp(CPU* cpu, Op op) {
+void op_jmp(Cpu* cpu, Op op) {
     step_addressing_mode(cpu, op.addr_mode, READ);
     if (cpu_is_addr_ready(cpu)) {
         u16 address = cpu->address_bus;
@@ -646,7 +646,7 @@ void op_jmp(CPU* cpu, Op op) {
     }
 }
 
-void op_jsr(CPU* cpu, Op op) {
+void op_jsr(Cpu* cpu, Op op) {
     assert(op.addr_mode == ADDR_MODE_ABSOLUTE);
 
     switch (cpu->t) {
@@ -689,7 +689,7 @@ void op_jsr(CPU* cpu, Op op) {
     }
 }
 
-void op_rts(CPU* cpu, Op op) {
+void op_rts(Cpu* cpu, Op op) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
 
     switch (cpu->t) {
@@ -726,7 +726,7 @@ void op_rts(CPU* cpu, Op op) {
     }
 }
 
-void op_brk(CPU* cpu, Op op) {
+void op_brk(Cpu* cpu, Op op) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
 
     switch (cpu->t) {
@@ -800,7 +800,7 @@ void op_brk(CPU* cpu, Op op) {
     }
 }
 
-void op_rti(CPU* cpu, Op op) {
+void op_rti(Cpu* cpu, Op op) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
 
     switch (cpu->t) {
@@ -839,7 +839,7 @@ void op_rti(CPU* cpu, Op op) {
     }
 }
 
-void op_branch(CPU* cpu, Op op, u8 should_branch) {
+void op_branch(Cpu* cpu, Op op, u8 should_branch) {
     assert(op.addr_mode == ADDR_MODE_RELATIVE);
 
     switch (cpu->t) {
@@ -885,7 +885,7 @@ void op_branch(CPU* cpu, Op op, u8 should_branch) {
     }
 }
 
-void op_push(CPU* cpu, Op op, u8 value) {
+void op_push(Cpu* cpu, Op op, u8 value) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
 
     switch (cpu->t) {
@@ -902,7 +902,7 @@ void op_push(CPU* cpu, Op op, u8 value) {
     }
 }
 
-i16 op_pull(CPU* cpu, Op op) {
+i16 op_pull(Cpu* cpu, Op op) {
     assert(op.addr_mode == ADDR_MODE_IMPLIED);
 
     switch (cpu->t) {
@@ -923,7 +923,7 @@ i16 op_pull(CPU* cpu, Op op) {
     return -1;
 }
 
-void cpu_step(CPU* cpu) {
+void cpu_step(Cpu* cpu) {
     // First phase of a cycle is always a memory operation.
     switch (cpu->bus_mode) {
         case READ:

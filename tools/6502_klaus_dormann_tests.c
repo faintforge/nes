@@ -7,7 +7,7 @@
 
 typedef struct Machine Machine;
 struct Machine {
-    CPU cpu;
+    Cpu cpu;
     u8 ram[0x10000];
 
     b8 should_log;
@@ -36,7 +36,7 @@ void bus_write(MemoryBus* bus, u16 address, u8 value) {
 }
 
 u16 step_instruction(Machine* machine) {
-    CPU* cpu = &machine->cpu;
+    Cpu* cpu = &machine->cpu;
     assert(cpu->t == 0);
 
     u16 start_address = cpu->pc;

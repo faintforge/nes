@@ -17,7 +17,7 @@
 // opcode: u8
 // operand: u16
 //
-// CPU initial
+// Cpu initial
 // a: u8
 // x: u8
 // y: u8
@@ -30,7 +30,7 @@
 //      address: u16
 //      value: u8
 //
-// CPU expected
+// Cpu expected
 // a: u8
 // x: u8
 // y: u8
@@ -80,11 +80,11 @@ struct TestCase {
     u8 opcode;
     u16 operand;
 
-    CPU initial_cpu;
+    Cpu initial_cpu;
     u8 initial_memory_length;
     MemoryEntry initial_memory[MAX_MEMORY_ENTREIS];
 
-    CPU expected_cpu;
+    Cpu expected_cpu;
     u8 expected_memory_length;
     MemoryEntry expected_memory[MAX_MEMORY_ENTREIS];
 
@@ -94,7 +94,7 @@ struct TestCase {
 
 typedef struct TestingMachine TestingMachine;
 struct TestingMachine {
-    CPU cpu;
+    Cpu cpu;
     u8 memory[0x10000];
     b8 running;
     u8 result;
@@ -114,7 +114,7 @@ u8 bus_read(MemoryBus* bus, u16 address) {
     return value;
 }
 
-void dump_cpu(const CPU* cpu) {
+void dump_cpu(const Cpu* cpu) {
     const char status_flags[16] = {
         'c', 'C',
         'z', 'Z',
@@ -126,7 +126,7 @@ void dump_cpu(const CPU* cpu) {
         'n', 'N',
     };
 
-    printf("\n===== CPU DUMP =====\n");
+    printf("\n===== Cpu DUMP =====\n");
     printf("A      = %-5u (0x%02X)\n", cpu->a, cpu->a);
     printf("X      = %-5u (0x%02X)\n", cpu->x, cpu->x);
     printf("Y      = %-5u (0x%02X)\n", cpu->y, cpu->y);
@@ -149,7 +149,7 @@ void bus_write(MemoryBus* bus, u16 address, u8 value) {
             // Reset machine state but keep executing
             case 0x4000:
                 memset(machine->memory, 0, 0x8000);
-                CPU* cpu = &machine->cpu;
+                Cpu* cpu = &machine->cpu;
                 cpu->p = FLAG_INTERRUPT_DISABLE;
                 cpu->a = 0;
                 cpu->x = 0;
@@ -215,8 +215,8 @@ static inline u16 read_u16(FILE* fp) {
     return (high << 8) | low;
 }
 
-CPU read_cpu(FILE* fp) {
-    CPU cpu = {0};
+Cpu read_cpu(FILE* fp) {
+    Cpu cpu = {0};
     cpu.a = read_u8(fp);
     cpu.x = read_u8(fp);
     cpu.y = read_u8(fp);
@@ -302,7 +302,7 @@ void pretty_print_opcode(u8 opcode) {
 }
 
 void run_test(const TestCase* test) {
-    // Set up CPU
+    // Set up Cpu
     TestingMachine machine = {
         .running = true,
     };
@@ -311,7 +311,7 @@ void run_test(const TestCase* test) {
         .read = bus_read,
         .write = bus_write,
     };
-    CPU cpu = test->initial_cpu;
+    Cpu cpu = test->initial_cpu;
     cpu.bus = bus;
 
     // Set up ROM
@@ -334,7 +334,7 @@ void run_test(const TestCase* test) {
     b8 passed = true;
 
     // Check registers
-    CPU expected = test->expected_cpu;
+    Cpu expected = test->expected_cpu;
     if (!(cpu.a == expected.a &&
         cpu.x == expected.x &&
         cpu.y == expected.y &&
