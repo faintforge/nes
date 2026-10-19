@@ -10,7 +10,7 @@ all: tools build asm
 
 .PHONY: tools
 tools:
-	$(CC) $(CFLAGS) src/op.c tools/opcode_table_generator.c -o bin/opcode-table-generator $(IFLAGS)
+	$(CC) $(CFLAGS) tools/opcode_table_generator.c -o bin/opcode-table-generator $(IFLAGS)
 
 .PHONY: build
 build: tools

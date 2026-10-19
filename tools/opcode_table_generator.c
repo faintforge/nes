@@ -283,10 +283,10 @@ void print_c_table_content(void) {
             } else {
                 char buffer[80] = {0};
                 snprintf(buffer, 80, "    [0x%02X] = {%s,%-8s%s},", opcode,
-                        op_enum_string(op.type), "",
-                        addr_mode_enum_string(op.addr_mode));
-                printf("%-56s// %s %s\n", buffer, op_pretty_string(op.type),
-                        addr_mode_pretty_string(op.addr_mode));
+                        OP_ENUM_STRING[op.type], "",
+                        ADDR_MODE_ENUM_STRING[op.addr_mode]);
+                printf("%-56s// %s %s\n", buffer, OP_PRETTY_STRING[op.type],
+                        ADDR_MODE_PRETTY_STRING[op.addr_mode]);
             }
         }
     }
@@ -301,8 +301,8 @@ void print_c_string_table_content(void) {
             if (op.type == OP__UNDEFINED) {
                 printf("    [0x%02X] = \"undefined\",\n", opcode);
             } else {
-                printf("    [0x%02X] = \"%s %s\",\n", opcode, op_pretty_string(op.type),
-                        addr_mode_pretty_string(op.addr_mode));
+                printf("    [0x%02X] = \"%s %s\",\n", opcode, OP_PRETTY_STRING[op.type],
+                        ADDR_MODE_PRETTY_STRING[op.addr_mode]);
             }
         }
     }
@@ -346,8 +346,8 @@ void print_python_table_content(void) {
             continue;
         }
 
-        const char* op_str = op_pretty_string(op.type);
-        const char* mode_str = addr_mode_pretty_string(op.addr_mode);
+        const char* const op_str = OP_PRETTY_STRING[op.type];
+        const char* const mode_str = ADDR_MODE_PRETTY_STRING[op.addr_mode];
         printf("    0x%02X: {\"op\": \"%s\", \"mode\": \"%s\"},\n", opcode, op_str, mode_str);
     }
 }

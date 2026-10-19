@@ -32,7 +32,7 @@ static inline void cpu_set_zero_negative(CPU* cpu, u8 value) {
 }
 
 // =============================================================================
-// Memory operation helpers
+// Helpers
 // =============================================================================
 
 // Signal instruction is done
@@ -842,7 +842,6 @@ void op_rti(CPU* cpu, Op op) {
 void op_branch(CPU* cpu, Op op, u8 should_branch) {
     assert(op.addr_mode == ADDR_MODE_RELATIVE);
 
-    // TODO: This feels really awkward. Figure out a nicer way to write it.
     switch (cpu->t) {
         case 1:
             if (!should_branch) {
@@ -955,10 +954,6 @@ void cpu_step(CPU* cpu) {
             return;
         }
     }
-
-
-    // TODO: Refactor a lot of common operations into their own function for
-    // readability
 
     // Step instruction
     Op op = OPCODE_TABLE[cpu->ir];
