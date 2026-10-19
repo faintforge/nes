@@ -22,16 +22,35 @@ i32 main(void) {
     SDL_Window* window = NULL;
     SDL_Renderer* renderer = NULL;
     SDL_CHECK(SDL_CreateWindowAndRenderer("nesemu", 1280, 720, 0, &window, &renderer));
-    SDL_SetWindowResizable(window, false);
+    // SDL_SetWindowResizable(window, true);
 
-    Ppu ppu = {0};
+    u8 buffer[10000] = {0};
+    u32 buffer_length = sizeof(buffer);
+    read_file("/home/faint/Downloads/2C02G_U_wiki.pal", buffer, &buffer_length);
+    Ppu ppu = ppu_init(buffer, 64*3);
     ppu__debug_fill_pixels(&ppu);
 
+    for (i32 luma = 0; luma < 4; luma++) {
+        for (i32 chroma = 0; chroma < 16; chroma++) {
+            u8 color = (luma << 4) | chroma;
+            const u8 pixel_size = 8;
+            Color decoded = ppu_decode_color(&ppu, color);
+            for (u32 dy = 0; dy < pixel_size; dy++) {
+                for (u32 dx = 0; dx < pixel_size; dx++) {
+                    u32 x = LEFT_BORDER_WIDTH + dx + chroma*pixel_size;
+                    u32 y = dy + luma*pixel_size;
+                    ((Color*) ppu.pixels)[x+y*OUTPUT_WIDTH] = decoded;
+                }
+            }
+        }
+    }
+
     SDL_Texture* output = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+    SDL_SetTextureScaleMode(output, SDL_SCALEMODE_PIXELART);
 
     b8 running = true;
     b8 draw_border = false;
-    b8 integer_scaling = false; 
+    b8 integer_scaling = false;
 
     while (running) {
         SDL_Event ev = {0};
@@ -92,8 +111,8 @@ i32 main(void) {
         }
 
         SDL_FRect dst = {
-            .x = (viewport.w - src.w*scale) / 2.0f,
-            .y = (viewport.h - src.h*scale) / 2.0f,
+            .x = roundf((viewport.w - src.w*scale) / 2.0f),
+            .y = roundf((viewport.h - src.h*scale) / 2.0f),
             .w = src.w*scale,
             .h = src.h*scale,
         };

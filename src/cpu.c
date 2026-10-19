@@ -27,8 +27,8 @@ static inline b8 cpu_get_status_flag(Cpu* cpu, u8 flag) {
 
 
 static inline void cpu_set_zero_negative(Cpu* cpu, u8 value) {
-    cpu_set_status_flag(cpu, FLAG_ZERO, value == 0);
-    cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(value, 7));
+    cpu_set_status_flag(cpu, CPU_FLAG_ZERO, value == 0);
+    cpu_set_status_flag(cpu, CPU_FLAG_NEGATIVE, get_bit(value, 7));
 }
 
 // =============================================================================
@@ -47,7 +47,7 @@ static void cpu_instruction_done(Cpu* cpu) {
         cpu->interrupt_type = RESET;
     } else if (cpu->nmi != 0) {
         cpu->interrupt_type = NMI;
-    } else if (cpu->irq != 0 && !cpu_get_status_flag(cpu, FLAG_INTERRUPT_DISABLE)) {
+    } else if (cpu->irq != 0 && !cpu_get_status_flag(cpu, CPU_FLAG_INTERRUPT_DISABLE)) {
         cpu->interrupt_type = IRQ;
     }
 
@@ -59,11 +59,11 @@ static void cpu_instruction_done(Cpu* cpu) {
         case -1:
             break;
         case 0:
-            cpu->p &= ~FLAG_INTERRUPT_DISABLE;
+            cpu->p &= ~CPU_FLAG_INTERRUPT_DISABLE;
             cpu->delay_interrupt_disable = -1;
             break;
         case 1:
-            cpu->p |= FLAG_INTERRUPT_DISABLE;
+            cpu->p |= CPU_FLAG_INTERRUPT_DISABLE;
             cpu->delay_interrupt_disable = -1;
             break;
     }
@@ -112,7 +112,7 @@ Cpu cpu_init(MemoryBus bus) {
         .pc = 0,
         .address_bus = 0,
         .s = 0,
-        .p = FLAG_INTERRUPT_DISABLE | FLAG__EXPANSION,
+        .p = CPU_FLAG_INTERRUPT_DISABLE | CPU_FLAG__EXPANSION,
         .bus_mode = READ,
         .interrupt_type = RESET,
     };
@@ -402,8 +402,8 @@ void op_ld(Cpu* cpu, void* ctx) {
 void op_adc(Cpu* cpu, void* ctx) {
     (void) ctx;
 
-    if (!cpu_get_status_flag(cpu, FLAG_DECIMAL)) {
-        u16 result = cpu->a + cpu->data_bus + cpu_get_status_flag(cpu, FLAG_CARRY);
+    if (!cpu_get_status_flag(cpu, CPU_FLAG_DECIMAL)) {
+        u16 result = cpu->a + cpu->data_bus + cpu_get_status_flag(cpu, CPU_FLAG_CARRY);
 
         u8 result_sign = get_bit(result, 7);
         u8 a_sign = get_bit(cpu->a, 7);
@@ -412,8 +412,8 @@ void op_adc(Cpu* cpu, void* ctx) {
 
         cpu->a = result;
 
-        cpu_set_status_flag(cpu, FLAG_CARRY, result > 0xFF);
-        cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
+        cpu_set_status_flag(cpu, CPU_FLAG_CARRY, result > 0xFF);
+        cpu_set_status_flag(cpu, CPU_FLAG_OVERFLOW, overflow);
         cpu_set_zero_negative(cpu, result);
     } else {
         u8 lhs_low  = cpu->a & 0x0F;
@@ -421,30 +421,30 @@ void op_adc(Cpu* cpu, void* ctx) {
         u8 rhs_low  = cpu->data_bus & 0x0F;
         u8 rhs_high = (cpu->data_bus & 0xF0) >> 4;
 
-        u8 low_sum = lhs_low + rhs_low + cpu_get_status_flag(cpu, FLAG_CARRY);
+        u8 low_sum = lhs_low + rhs_low + cpu_get_status_flag(cpu, CPU_FLAG_CARRY);
         u8 high_sum = lhs_high + rhs_high;
         if (low_sum >= 10) {
             high_sum++;
             low_sum -= 10;
         }
-        cpu_set_status_flag(cpu, FLAG_CARRY, high_sum >= 10);
+        cpu_set_status_flag(cpu, CPU_FLAG_CARRY, high_sum >= 10);
         if (high_sum >= 10) {
             high_sum -= 10;
         }
 
         cpu->a = low_sum | (high_sum << 4);
 
-        cpu_set_status_flag(cpu, FLAG_OVERFLOW, false);
-        cpu_set_status_flag(cpu, FLAG_NEGATIVE, false);
-        cpu_set_status_flag(cpu, FLAG_ZERO, cpu->a == 0);
+        cpu_set_status_flag(cpu, CPU_FLAG_OVERFLOW, false);
+        cpu_set_status_flag(cpu, CPU_FLAG_NEGATIVE, false);
+        cpu_set_status_flag(cpu, CPU_FLAG_ZERO, cpu->a == 0);
     }
 }
 
 void op_sbc(Cpu* cpu, void* ctx) {
     (void) ctx;
 
-    if (!cpu_get_status_flag(cpu, FLAG_DECIMAL)) {
-        i16 result = cpu->a + ~cpu->data_bus + cpu_get_status_flag(cpu, FLAG_CARRY);
+    if (!cpu_get_status_flag(cpu, CPU_FLAG_DECIMAL)) {
+        i16 result = cpu->a + ~cpu->data_bus + cpu_get_status_flag(cpu, CPU_FLAG_CARRY);
 
         u8 result_sign = get_bit(result, 7);
         u8 a_sign = get_bit(cpu->a, 7);
@@ -453,8 +453,8 @@ void op_sbc(Cpu* cpu, void* ctx) {
 
         cpu->a = result & 0xFF;
 
-        cpu_set_status_flag(cpu, FLAG_CARRY, result >= 0);
-        cpu_set_status_flag(cpu, FLAG_OVERFLOW, overflow);
+        cpu_set_status_flag(cpu, CPU_FLAG_CARRY, result >= 0);
+        cpu_set_status_flag(cpu, CPU_FLAG_OVERFLOW, overflow);
         cpu_set_zero_negative(cpu, result);
     } else {
         u8 lhs_low  = cpu->a & 0x0F;
@@ -463,23 +463,23 @@ void op_sbc(Cpu* cpu, void* ctx) {
         u8 rhs_low  = cpu->data_bus & 0x0F;
         u8 rhs_high = cpu->data_bus >> 4;
 
-        i8 diff_low = lhs_low - rhs_low - !cpu_get_status_flag(cpu, FLAG_CARRY);
+        i8 diff_low = lhs_low - rhs_low - !cpu_get_status_flag(cpu, CPU_FLAG_CARRY);
         i8 diff_high = lhs_high - rhs_high;
 
         if (diff_low < 0) {
             diff_high--;
             diff_low += 10;
         }
-        cpu_set_status_flag(cpu, FLAG_CARRY, diff_high >= 0);
+        cpu_set_status_flag(cpu, CPU_FLAG_CARRY, diff_high >= 0);
         if (diff_high < 0) {
             diff_high += 10;
         }
 
         cpu->a = diff_low | (diff_high << 4);
 
-        cpu_set_status_flag(cpu, FLAG_OVERFLOW, false);
-        cpu_set_status_flag(cpu, FLAG_NEGATIVE, false);
-        cpu_set_status_flag(cpu, FLAG_ZERO, cpu->a == 0);
+        cpu_set_status_flag(cpu, CPU_FLAG_OVERFLOW, false);
+        cpu_set_status_flag(cpu, CPU_FLAG_NEGATIVE, false);
+        cpu_set_status_flag(cpu, CPU_FLAG_ZERO, cpu->a == 0);
     }
 }
 
@@ -504,16 +504,16 @@ void op_eor(Cpu* cpu, void* ctx) {
 void op_bit(Cpu* cpu, void* ctx) {
     (void) ctx;
     u8 result = cpu->a & cpu->data_bus;
-    cpu_set_status_flag(cpu, FLAG_ZERO, result == 0);
-    cpu_set_status_flag(cpu, FLAG_OVERFLOW, get_bit(cpu->data_bus, 6));
-    cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(cpu->data_bus, 7));
+    cpu_set_status_flag(cpu, CPU_FLAG_ZERO, result == 0);
+    cpu_set_status_flag(cpu, CPU_FLAG_OVERFLOW, get_bit(cpu->data_bus, 6));
+    cpu_set_status_flag(cpu, CPU_FLAG_NEGATIVE, get_bit(cpu->data_bus, 7));
 }
 
 void op_cmp(Cpu* cpu, void* ctx) {
     u8* reg = ctx;
-    cpu_set_status_flag(cpu, FLAG_CARRY, *reg >= cpu->data_bus);
-    cpu_set_status_flag(cpu, FLAG_ZERO, *reg == cpu->data_bus);
-    cpu_set_status_flag(cpu, FLAG_NEGATIVE, get_bit(*reg - cpu->data_bus, 7));
+    cpu_set_status_flag(cpu, CPU_FLAG_CARRY, *reg >= cpu->data_bus);
+    cpu_set_status_flag(cpu, CPU_FLAG_ZERO, *reg == cpu->data_bus);
+    cpu_set_status_flag(cpu, CPU_FLAG_NEGATIVE, get_bit(*reg - cpu->data_bus, 7));
 }
 
 // =============================================================================
@@ -562,30 +562,30 @@ void rmw_asl(Cpu* cpu, u8* memory) {
     b8 carry = get_bit(*memory, 7);
     *memory <<= 1;
     cpu_set_zero_negative(cpu, *memory);
-    cpu_set_status_flag(cpu, FLAG_CARRY, carry);
+    cpu_set_status_flag(cpu, CPU_FLAG_CARRY, carry);
 }
 
 void rmw_lsr(Cpu* cpu, u8* memory) {
     b8 carry = *memory & 1;
     *memory >>= 1;
     cpu_set_zero_negative(cpu, *memory);
-    cpu_set_status_flag(cpu, FLAG_CARRY, carry);
+    cpu_set_status_flag(cpu, CPU_FLAG_CARRY, carry);
 }
 
 void rmw_rol(Cpu* cpu, u8* memory) {
-    u8 carry = cpu_get_status_flag(cpu, FLAG_CARRY);
+    u8 carry = cpu_get_status_flag(cpu, CPU_FLAG_CARRY);
     b8 new_carry = get_bit(*memory, 7);
     *memory = (*memory << 1) | carry;
     cpu_set_zero_negative(cpu, *memory);
-    cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
+    cpu_set_status_flag(cpu, CPU_FLAG_CARRY, new_carry);
 }
 
 void rmw_ror(Cpu* cpu, u8* memory) {
-    u8 carry = cpu_get_status_flag(cpu, FLAG_CARRY);
+    u8 carry = cpu_get_status_flag(cpu, CPU_FLAG_CARRY);
     b8 new_carry = *memory & 1;
     *memory = (*memory >> 1) | (carry << 7);
     cpu_set_zero_negative(cpu, *memory);
-    cpu_set_status_flag(cpu, FLAG_CARRY, new_carry);
+    cpu_set_status_flag(cpu, CPU_FLAG_CARRY, new_carry);
 }
 
 // =============================================================================
@@ -751,7 +751,7 @@ void op_brk(Cpu* cpu, Op op) {
         case 3:
             cpu->bus_mode = WRITE;
             if (cpu->interrupt_type == BRK) {
-                cpu->data_bus = cpu->p | FLAG_BREAK;
+                cpu->data_bus = cpu->p | CPU_FLAG_BREAK;
             } else {
                 cpu->data_bus = cpu->p;
             }
@@ -761,7 +761,7 @@ void op_brk(Cpu* cpu, Op op) {
             break;
         // Fetch adl
         case 4:
-            cpu_set_status_flag(cpu, FLAG_INTERRUPT_DISABLE, true);
+            cpu_set_status_flag(cpu, CPU_FLAG_INTERRUPT_DISABLE, true);
             cpu->delay_interrupt_disable = -1;
             cpu->bus_mode = READ;
             switch (cpu->interrupt_type) {
@@ -816,7 +816,7 @@ void op_rti(Cpu* cpu, Op op) {
             break;
         // Fetch adl
         case 3:
-            cpu->p = cpu->data_bus & ~FLAG_BREAK;
+            cpu->p = cpu->data_bus & ~CPU_FLAG_BREAK;
             cpu->s++;
             cpu->address_bus = 0x0100 | cpu->s;
             cpu->t++;
@@ -1065,31 +1065,31 @@ void cpu_step(Cpu* cpu) {
 
         // Branch
         case OP_BCC:
-            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_CARRY) == false);
+            op_branch(cpu, op, cpu_get_status_flag(cpu, CPU_FLAG_CARRY) == false);
             break;
         case OP_BCS:
-            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_CARRY) == true);
+            op_branch(cpu, op, cpu_get_status_flag(cpu, CPU_FLAG_CARRY) == true);
             break;
 
         case OP_BEQ:
-            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_ZERO) == true);
+            op_branch(cpu, op, cpu_get_status_flag(cpu, CPU_FLAG_ZERO) == true);
             break;
         case OP_BNE:
-            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_ZERO) == false);
+            op_branch(cpu, op, cpu_get_status_flag(cpu, CPU_FLAG_ZERO) == false);
             break;
 
         case OP_BPL:
-            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_NEGATIVE) == false);
+            op_branch(cpu, op, cpu_get_status_flag(cpu, CPU_FLAG_NEGATIVE) == false);
             break;
         case OP_BMI:
-            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_NEGATIVE) == true);
+            op_branch(cpu, op, cpu_get_status_flag(cpu, CPU_FLAG_NEGATIVE) == true);
             break;
 
         case OP_BVC:
-            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_OVERFLOW) == false);
+            op_branch(cpu, op, cpu_get_status_flag(cpu, CPU_FLAG_OVERFLOW) == false);
             break;
         case OP_BVS:
-            op_branch(cpu, op, cpu_get_status_flag(cpu, FLAG_OVERFLOW) == true);
+            op_branch(cpu, op, cpu_get_status_flag(cpu, CPU_FLAG_OVERFLOW) == true);
             break;
 
         // Jump
@@ -1121,20 +1121,20 @@ void cpu_step(Cpu* cpu) {
             break;
 
         case OP_PHP:
-            op_push(cpu, op, cpu->p | FLAG_BREAK);
+            op_push(cpu, op, cpu->p | CPU_FLAG_BREAK);
             break;
         case OP_PLP: {
             i16 result = op_pull(cpu, op);
             if (result != -1) {
-                cpu->delay_interrupt_disable = (result & FLAG_INTERRUPT_DISABLE) != 0;
+                cpu->delay_interrupt_disable = (result & CPU_FLAG_INTERRUPT_DISABLE) != 0;
                 // Clear I
-                result &= ~FLAG_INTERRUPT_DISABLE;
+                result &= ~CPU_FLAG_INTERRUPT_DISABLE;
                 // Clear B
-                result &= ~FLAG_BREAK;
+                result &= ~CPU_FLAG_BREAK;
                 // Take the value of current I
-                result |= (cpu->p & FLAG_INTERRUPT_DISABLE);
+                result |= (cpu->p & CPU_FLAG_INTERRUPT_DISABLE);
                 // Expansion is ALWAYS on
-                cpu->p = result | FLAG__EXPANSION;
+                cpu->p = result | CPU_FLAG__EXPANSION;
                 cpu_instruction_done(cpu);
             }
         } break;
@@ -1148,11 +1148,11 @@ void cpu_step(Cpu* cpu) {
 
         // Flags
         case OP_CLC:
-            cpu->p &= ~FLAG_CARRY;
+            cpu->p &= ~CPU_FLAG_CARRY;
             cpu_instruction_done(cpu);
             break;
         case OP_SEC:
-            cpu->p |= FLAG_CARRY;
+            cpu->p |= CPU_FLAG_CARRY;
             cpu_instruction_done(cpu);
             break;
 
@@ -1166,16 +1166,16 @@ void cpu_step(Cpu* cpu) {
             break;
 
         case OP_CLD:
-            cpu->p &= ~FLAG_DECIMAL;
+            cpu->p &= ~CPU_FLAG_DECIMAL;
             cpu_instruction_done(cpu);
             break;
         case OP_SED:
-            cpu->p |= FLAG_DECIMAL;
+            cpu->p |= CPU_FLAG_DECIMAL;
             cpu_instruction_done(cpu);
             break;
 
         case OP_CLV:
-            cpu->p &= ~FLAG_OVERFLOW;
+            cpu->p &= ~CPU_FLAG_OVERFLOW;
             cpu_instruction_done(cpu);
             break;
 
@@ -1190,8 +1190,8 @@ void cpu_step(Cpu* cpu) {
             fprintf(stderr, "ERR: Unknown opcode: 0x%02X\n", cpu->ir);
             UNREACHABLE();
     }
-    assert(cpu_get_status_flag(cpu, FLAG__EXPANSION) == 1);
-    assert(cpu_get_status_flag(cpu, FLAG_BREAK) == 0);
+    assert(cpu_get_status_flag(cpu, CPU_FLAG__EXPANSION) == 1);
+    assert(cpu_get_status_flag(cpu, CPU_FLAG_BREAK) == 0);
 
     cpu->cycle++;
 }

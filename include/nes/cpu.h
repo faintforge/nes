@@ -4,14 +4,14 @@
 #include "nes/common.h"
 
 enum {
-    FLAG_CARRY                = 0x01,
-    FLAG_ZERO                 = 0x02,
-    FLAG_INTERRUPT_DISABLE    = 0x04,
-    FLAG_DECIMAL              = 0x08,
-    FLAG_BREAK                = 0x10,
-    FLAG__EXPANSION           = 0x20,
-    FLAG_OVERFLOW             = 0x40,
-    FLAG_NEGATIVE             = 0x80,
+    CPU_FLAG_CARRY                = 0x01,
+    CPU_FLAG_ZERO                 = 0x02,
+    CPU_FLAG_INTERRUPT_DISABLE    = 0x04,
+    CPU_FLAG_DECIMAL              = 0x08,
+    CPU_FLAG_BREAK                = 0x10,
+    CPU_FLAG__EXPANSION           = 0x20,
+    CPU_FLAG_OVERFLOW             = 0x40,
+    CPU_FLAG_NEGATIVE             = 0x80,
 };
 
 extern void print_cpu_status(u8 status);

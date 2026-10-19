@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 #include <assert.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 typedef int8_t  i8;
 typedef int16_t i16;
@@ -35,8 +37,30 @@ typedef u32 b32;
 #define get_bit(value, bit_index) (((value) >> (bit_index)) & 1)
 
 #define UNREACHABLE() assert(false && "Unreachable")
+#define UNIMPLEMENTED() do { \
+    fprintf(stderr, "'%s' not implemented!\n", __func__); \
+    abort(); \
+} while (0)
 
 #define max(a, b) ((a) > (b) ? (a) : (b))
 #define min(a, b) ((a) < (b) ? (a) : (b))
+
+// =============================================================================
+// Color
+// =============================================================================
+
+typedef struct Color Color;
+struct Color {
+    u8 r, g, b;
+};
+
+#define color_arg(c) (c).r, (c).g, (c).b
+#define color_arg_float(c) (float) (c).r, (float) (c).g, (float) (c).b
+
+// =============================================================================
+// File
+// =============================================================================
+
+extern b8 read_file(const char* filename, u8* output, u32* length);
 
 #endif // COMMON_H
