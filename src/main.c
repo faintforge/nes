@@ -1,6 +1,7 @@
 #include "nes/common.h"
 
 #include "nes/ppu.h"
+#include "nes/rom.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,6 +18,14 @@
 } while (0)
 
 i32 main(void) {
+    // NesRom rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes");
+    NesRom rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes");
+
+    print_nes_rom(rom);
+
+    free(rom.full_rom);
+    return 0;
+
     SDL_CHECK(SDL_Init(SDL_INIT_VIDEO));
 
     SDL_Window* window = NULL;

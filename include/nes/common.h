@@ -35,6 +35,9 @@ typedef u32 b32;
 #endif // NULL
 
 #define get_bit(value, bit_index) (((value) >> (bit_index)) & 1)
+#define get_bits(value, start, end) (((value) >> (start)) & ((1 << ((end) - (start) + 1)) - 1))
+#define nibble_low(value) ((value) & 0xF)
+#define nibble_high(value) (((value) >> 4) & 0xF)
 
 #define UNREACHABLE() assert(false && "Unreachable")
 #define UNIMPLEMENTED() do { \
@@ -44,6 +47,8 @@ typedef u32 b32;
 
 #define max(a, b) ((a) > (b) ? (a) : (b))
 #define min(a, b) ((a) < (b) ? (a) : (b))
+
+#define kib(value) (value << 10)
 
 // =============================================================================
 // Color
