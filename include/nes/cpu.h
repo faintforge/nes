@@ -16,13 +16,6 @@ enum {
 
 extern void print_cpu_status(u8 status);
 
-typedef struct MemoryBus MemoryBus;
-struct MemoryBus {
-    u8 (*read)(MemoryBus* bus, u16 address);
-    void (*write)(MemoryBus* bus, u16 address, u8 value);
-    void* ctx;
-};
-
 enum {
     WRITE,
     READ,
@@ -54,6 +47,8 @@ struct Cpu {
     u8 nmi;
     u8 reset;
     u8 irq;
+
+    u8 last_nmi;
 
     // Instruction register
     u8 ir;

@@ -37,8 +37,13 @@ struct PpuMask {
 
 typedef struct Ppu Ppu;
 struct Ppu {
-    // RGB format
-    u8 pixels[OUTPUT_WIDTH*OUTPUT_HEIGHT*3];
+    // Indices into palette. Call 'ppu_decode_color' to get RGB value.
+    u8 pixels[OUTPUT_WIDTH*OUTPUT_HEIGHT];
+
+    MemoryBus bus;
+    u16 address_bus;
+    u8 vram_bus;
+    u8 io_bus;
 
     Color palette[512];
     b8 palette_has_emph;
@@ -52,17 +57,40 @@ struct Ppu {
     PpuMask mask;
 
     // [Reference](https://www.nesdev.org/wiki/PPU_registers)
-    u16 base_nametable_address;
     VramIncrement vram_increment;
     u16 sprite_pattern_table_address;
     u16 background_pattern_address;
     SpriteSize sprite_size;
-    b8 vblank_nmi;
+    b8 vblank_nmi_enabled;
+
+    i8 ppu_address_delay;
+
+    // TODO: Make these bit-flags
+    b8 sprite_overflow_flag;
+    b8 sprite0_hit_flag;
+    b8 vblank_flag;
+    u8 vblank_nmi_signal;
+
+    u8 nt_bus;
+    u8 at_bus;
+    u8 pattern_bus_low;
+    u8 pattern_bus_high;
 
     u8 oam_addr;
+
+    i16 scanline;
+    u16 dot;
 };
 
-extern Ppu ppu_init(void);
+typedef struct PpuDot8 PpuDot8;
+struct PpuDot8 {
+    b8 is_ready;
+    u8 pixels[8];
+    u8 x; // Dot
+    u8 y; // Scanline
+};
+
+extern Ppu ppu_init(MemoryBus bus);
 extern void ppu_step(Ppu* ppu);
 
 // Reads .pal formatted data. Expects 'palette' to be filled with 3-byte long
@@ -71,24 +99,20 @@ extern void ppu_step(Ppu* ppu);
 extern void ppu_load_palette(Ppu* ppu, const u8* palette, u32 palette_size);
 extern Color ppu_decode_color(const Ppu* ppu, u8 color);
 
-// Write
-extern void ppu_crtl(Ppu* ppu, u8 value);
+// Memory mapped operations
+extern void ppu_ctrl(Ppu* ppu, u8 value);
 extern void ppu_mask(Ppu* ppu, u8 value);
+extern u8   ppu_status(Ppu* ppu);
 extern void ppu_oam_address(Ppu* ppu, u8 value);
+extern u8   ppu_oam_data_read(Ppu* ppu);
 extern void ppu_oam_data_write(Ppu* ppu, u8 value);
-extern void ppu_data_write(Ppu* ppu, u8 value);
-
-// Write 2x
 extern void ppu_scroll(Ppu* ppu, u8 value);
 extern void ppu_address(Ppu* ppu, u8 value);
+extern u8   ppu_data_read(Ppu* ppu);
+extern void ppu_data_write(Ppu* ppu, u8 value);
+extern void ppu_oam_mdma(Ppu* ppu, u8 value);
 
-// Read
-extern u8 ppu_status(Ppu* ppu);
-extern u8 ppu_oam_data_read(const Ppu* ppu);
-extern u8 ppu_data_read(const Ppu* ppu);
-
-// extern void ppu_oam_mdma(Ppu* ppu, u8 value);
-
-extern void ppu__debug_fill_pixels(Ppu* ppu);
+// If index == -1 draws whole palette repeating over whole screen.
+extern void ppu__debug_fill_pixels(Ppu* ppu, i8 color_index);
 
 #endif // PPU_H

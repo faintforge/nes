@@ -23,8 +23,8 @@ struct NesRom {
     u8* full_rom;
     NesRomVariation variation;
 
-    const u8* prg_rom;
-    const u8* chr_rom;
+    u8* prg_rom;
+    u8* chr_rom;
     u32 prg_rom_size;
     u32 chr_rom_size;
 

@@ -45,8 +45,11 @@ static void cpu_instruction_done(Cpu* cpu) {
 
     if (cpu->reset != 0) {
         cpu->interrupt_type = RESET;
-    } else if (cpu->nmi != 0) {
+    } else if (cpu->nmi != 0 && cpu->last_nmi == 0) {
+        // printf("NMI from $%04X\n", cpu->pc);
+        // exit(1);
         cpu->interrupt_type = NMI;
+        cpu->last_nmi = cpu->nmi;
     } else if (cpu->irq != 0 && !cpu_get_status_flag(cpu, CPU_FLAG_INTERRUPT_DISABLE)) {
         cpu->interrupt_type = IRQ;
     }
@@ -732,7 +735,9 @@ void op_brk(Cpu* cpu, Op op) {
     switch (cpu->t) {
         // Push pch
         case 1:
-            cpu_advance_pc(cpu);
+            if (cpu->interrupt_type == BRK) {
+                cpu_advance_pc(cpu);
+            }
             cpu->bus_mode = WRITE;
             cpu->data_bus = cpu->pc >> 8;
             cpu->address_bus = 0x0100 | cpu->s;
@@ -830,9 +835,7 @@ void op_rti(Cpu* cpu, Op op) {
             break;
         case 5:
             cpu->pc = ((u16) cpu->data_bus << 8) | cpu->internal_data;
-            cpu->address_bus = cpu->pc;
-            cpu->addr_ready_t = 0;
-            cpu->t = 0;
+            cpu_instruction_done(cpu);
             break;
         default:
             UNREACHABLE();
@@ -934,6 +937,12 @@ void cpu_step(Cpu* cpu) {
             break;
         default:
             UNREACHABLE();
+    }
+
+    // TODO: Change how NMI and IRQ:s work. They need to be latched and should
+    // not repond to another NMI during their execution.
+    if (cpu->nmi == 0) {
+        cpu->last_nmi = 0;
     }
 
     if (cpu->interrupt_type != NONE) {
@@ -1185,7 +1194,8 @@ void cpu_step(Cpu* cpu) {
             break;
 
         case OP__UNDEFINED:
-            exit(1);
+            fprintf(stderr, "ERR: Undefined opcode at $%04X: $%02X\n", cpu->pc, cpu->ir);
+            UNREACHABLE();
         default:
             fprintf(stderr, "ERR: Unknown opcode: 0x%02X\n", cpu->ir);
             UNREACHABLE();

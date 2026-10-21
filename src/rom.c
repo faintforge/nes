@@ -44,7 +44,7 @@ NesRom load_nes_rom_from_file(const char* filename) {
     if (!read_file(filename, NULL, &length)) {
         return nrom;
     }
-    u8* const rom = malloc(length);
+    u8* rom = malloc(length);
     if (!read_file(filename, rom, &length)) {
         free(rom);
         return nrom;

@@ -142,13 +142,130 @@ static const Color DEFAULT_PALETTE[512] = {
     {0x75, 0xA5, 0xA7}, {0x78, 0x78, 0x78}, {0x00, 0x00, 0x00}, {0x00, 0x00, 0x00},
 };
 
-Ppu ppu_init(void) {
-    Ppu ppu = {0};
+Ppu ppu_init(MemoryBus bus) {
+    Ppu ppu = {
+        .bus = bus,
+        .scanline = -1,
+        .ppu_address_delay = -1,
+    };
 
     memcpy(&ppu.palette, DEFAULT_PALETTE, sizeof(DEFAULT_PALETTE));
     ppu.palette_has_emph = true;
 
+    ppu_ctrl(&ppu, 0x00);
+    ppu_mask(&ppu, 0x00);
+    ppu_oam_address(&ppu, 0x00);
+    ppu_scroll(&ppu, 0x00);
+    ppu_scroll(&ppu, 0x00);
+    ppu_address(&ppu, 0x00);
+    ppu_address(&ppu, 0x00);
+
     return ppu;
+}
+
+void ppu_step(Ppu* ppu) {
+    if (ppu->dot > 340) {
+        ppu->dot = 0;
+        ppu->scanline++;
+        if (ppu->scanline > 260) {
+            // ppu->v += 32;
+            ppu->scanline = -1;
+        }
+    }
+
+    if (ppu->ppu_address_delay == 0) {
+        ppu->ppu_address_delay = -1;
+        ppu->v = ppu->t;
+    }
+    ppu->ppu_address_delay = max(-1, ppu->ppu_address_delay-1);
+
+    // Pre-render line
+    if (ppu->scanline == -1) {
+        if (ppu->dot == 1) {
+            ppu->vblank_flag = 0;
+        }
+        ppu->v = ppu->t;
+    }
+    // Visible lines
+    else if (ppu->scanline >= 0 && ppu->scanline < 240) {
+        // Idle cycle
+        if (ppu->dot == 0) {
+        } else if (ppu->dot >= 1 && ppu->dot <= 256) {
+            // 1. Fetch nametable
+            // 2. Fetch attribute table
+            // 3. Pattern table tile low
+            // 4. Pattern table tile high
+
+            u16 v = ppu->v;
+            u16 addresses[4] = {
+                // NT
+                0x2000 | (v & 0x0FFF),
+                // AT
+                0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07),
+                // Pattern low
+                ppu->background_pattern_address + ppu->nt_bus + 8,
+                // Pattern high
+                ppu->background_pattern_address + ppu->nt_bus,
+            };
+
+            u8 t = (ppu->dot - 1) & 0x7;
+            if ((t & 1) == 0) {
+                ppu->address_bus = addresses[t >> 1];
+            } else {
+                u8* buses[4] = {
+                    &ppu->nt_bus,
+                    &ppu->at_bus,
+                    (u8*) &ppu->pattern_bus_low,
+                    ((u8*) &ppu->pattern_bus_high) + 1,
+                };
+                *buses[t >> 1] = ppu->bus.read(&ppu->bus, ppu->address_bus);
+            }
+
+            if (t == 7) {
+                u8 pattern_plane0 = ppu->pattern_bus_low;
+                u8 pattern_plane1 = ppu->pattern_bus_high;
+                for (i32 dx = 0; dx < 8; dx++) {
+                    i32 x = ppu->dot-8 + dx;
+                    i32 y = ppu->scanline;
+                    u32 pixel_idx = (LEFT_BORDER_WIDTH + x) + y*OUTPUT_WIDTH;
+
+                    // u8 coarse_x = ppu->v & 0x7;
+                    // u8 coarse_y = (ppu->v >> 5) & 0x7;
+                    // u8 attribute = ppu->at_bus;
+
+                    // TODO: Figure out what palette should be selected based on
+                    // attribute.
+                    u8 palette = 0;
+                    u8 palette_entry = get_bit(pattern_plane0, 7-dx) | (get_bit(pattern_plane1, 7-dx) << 1);
+                    u8 color = palette*3 + palette_entry;
+
+                    if (palette == 0 && palette_entry == 0) {
+                        ppu->pixels[pixel_idx] = color;
+                    } else {
+                        ppu->pixels[pixel_idx] = 0;
+                    }
+
+                }
+
+                // TODO: Figure out how to increase horizontally and
+                // vertically.
+                ppu->v += 1;
+            }
+        }
+    }
+    // Post render line (idle)
+    else if (ppu->scanline == 240) {}
+    // V-Blank lines 
+    else if (ppu->scanline >= 241) {
+        if (ppu->dot == 1) {
+            ppu->vblank_flag = 1;
+            ppu->vblank_nmi_signal = ppu->vblank_nmi_enabled;
+        } else if (ppu->dot == 2) {
+            ppu->vblank_nmi_signal = 0;
+        }
+    }
+
+    ppu->dot++;
 }
 
 void ppu_load_palette(Ppu* ppu, const u8* palette, u32 palette_size) {
@@ -225,9 +342,12 @@ Color ppu_decode_color(const Ppu* ppu, u8 color) {
     return result;
 }
 
-void ppu_crtl(Ppu* ppu, u8 value) {
+void ppu_ctrl(Ppu* ppu, u8 value) {
     // [Reference](https://www.nesdev.org/wiki/PPU_registers#PPUCTRL)
-    ppu->base_nametable_address = 0x2000 + 0x400*(value&3);
+    // Bitmask 00001100_00000000 = 0x0C00
+    ppu->t &= ~0x0C00;
+    ppu->t |= (value & 3) << 10;
+
     ppu->vram_increment = get_bit(value, 2);
     ppu->sprite_pattern_table_address = 0x1000 * get_bit(value, 3);
     ppu->background_pattern_address = 0x1000 * get_bit(value, 4);
@@ -236,7 +356,7 @@ void ppu_crtl(Ppu* ppu, u8 value) {
         fprintf(stderr, "ERR: %s master/slave select bit set!", __func__);
         UNREACHABLE();
     }
-    ppu->vblank_nmi = get_bit(value, 7);
+    ppu->vblank_nmi_enabled = get_bit(value, 7);
 }
 
 void ppu_mask(Ppu* ppu, u8 value) {
@@ -244,20 +364,115 @@ void ppu_mask(Ppu* ppu, u8 value) {
 }
 
 u8 ppu_status(Ppu* ppu) {
-    // TODO: Implement this
+    ppu->io_bus |= ppu->sprite_overflow_flag << 5;
+    ppu->io_bus |= ppu->sprite0_hit_flag << 6;
+    ppu->io_bus |= ppu->vblank_flag << 7;
+
     ppu->w = 0;
+    ppu->vblank_flag = 0;
+
+    return ppu->io_bus;
+}
+
+void ppu_oam_address(Ppu* ppu, u8 value) {
+    ppu->oam_addr = value;
+}
+
+u8 ppu_oam_data_read(Ppu* ppu) {
+    (void) ppu;
     UNIMPLEMENTED();
 }
 
-// void ppu_oam_address(Ppu* ppu, u8 value) {}
+void ppu_oam_data_write(Ppu* ppu, u8 value) {
+    (void) ppu;
+    (void) value;
+    UNIMPLEMENTED();
+}
 
-void ppu__debug_fill_pixels(Ppu* ppu) {
+void ppu__debug_fill_pixels(Ppu* ppu, i8 color_index) {
+    assert(color_index < 64);
     for (i32 y = 0; y < OUTPUT_HEIGHT; y++) {
         for (i32 x = 0; x < OUTPUT_WIDTH; x++) {
             i32 idx = x+y*OUTPUT_WIDTH;
-            ppu->pixels[idx*3 + 0] = ((float) x / OUTPUT_WIDTH)*255;
-            ppu->pixels[idx*3 + 1] = ((float) y / OUTPUT_HEIGHT)*255;
-            ppu->pixels[idx*3 + 2] = 64;
+            if (color_index == -1) {
+                u8 chroma = (x/4) & 0xF;
+                u8 luma = (y/4) & 0x3;
+                ppu->pixels[idx] = chroma | (luma << 4);
+            } else {
+                ppu->pixels[idx] = color_index;
+            }
         }
     }
+}
+
+void ppu_scroll(Ppu* ppu, u8 value) {
+    u16 fine = value & 7;
+    u16 coarse = value >> 3;
+    if (ppu->w == 0) {
+        // Clear first 5 bits (coarse-X)
+        ppu->t &= ~0x1F;
+        ppu->t |= coarse;
+
+        ppu->x = fine;
+    } else {
+        // Bitmask 01110011 11100000 = 0x73E0
+        ppu->t &= ~0x73E0;
+
+        ppu->t |= coarse << 5;
+        ppu->t |= fine << 12;
+    }
+
+    ppu->w = !ppu->w;
+}
+
+void ppu_address(Ppu* ppu, u8 value) {
+    if (ppu->w == 0) {
+        // Clear high bits
+        ppu->t &= ~((u16) 0xF << 8);
+        ppu->t |= ((u16) value) << 8;
+        printf("ppu_addr_high: $%02X\n", value);
+    } else {
+        ppu->t &= ~(u16) 0xF;
+        ppu->t |= value;
+        ppu->ppu_address_delay = 1;
+        printf("ppu_addr_low: $%02X\n", value);
+        printf("ppu_addr_full: $%04X\n", ppu->t);
+    }
+
+    ppu->w = !ppu->w;
+}
+
+u8 ppu_data_read(Ppu* ppu) {
+    u8 value = ppu->bus.read(&ppu->bus, ppu->v);
+    switch (ppu->vram_increment) {
+        case VRAM_INCREMENT_ACROSS:
+            ppu->v++;
+            break;
+        case VRAM_INCREMENT_DOWN:
+            ppu->v += 32;
+            break;
+        default:
+            UNREACHABLE();
+    }
+    return value;
+}
+
+void ppu_data_write(Ppu* ppu, u8 value) {
+    ppu->bus.write(&ppu->bus, ppu->v, value);
+    switch (ppu->vram_increment) {
+        case VRAM_INCREMENT_ACROSS:
+            ppu->v++;
+            break;
+        case VRAM_INCREMENT_DOWN:
+            ppu->v += 32;
+            break;
+        default:
+            UNREACHABLE();
+    }
+}
+
+void ppu_oam_mdma(Ppu* ppu, u8 value) {
+    (void) ppu;
+    (void) value;
+    UNREACHABLE();
 }
