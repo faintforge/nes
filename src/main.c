@@ -99,7 +99,7 @@ u8 mem_cpu_read(MemoryBus* bus, u16 address) {
         value = *memory;
     }
 
-    printf("CPU: READ(t%d): $%04X, %d ($%02X)\n", machine->cpu.t, address, value, value);
+    // printf("CPU: READ(t%d): $%04X, %d ($%02X)\n", machine->cpu.t, address, value, value);
 
     if (memory == &dummy) {
         abort();
@@ -150,27 +150,44 @@ void mem_cpu_write(MemoryBus* bus, u16 address, u8 value) {
         // abort();
     }
 
-    printf("CPU: WRITE(t%d): $%04X, %d ($%02X)\n", machine->cpu.t, address, value, value);
+    // printf("CPU: WRITE(t%d): $%04X, %d ($%02X)\n", machine->cpu.t, address, value, value);
 }
 
 u8* mem_ppu_helper(Machine* machine, u16 address) {
     if (address < 0x2000) {
+        // printf("CHR-ROM access\n");
         return &machine->rom.chr_rom[address];
     }
 
-    // Nametable and attribute table 0-3
+    // Nametable and attribute tables
     if (address >= 0x2000 && address < 0x3000) {
-        return &machine->ppu_vram[(address - 0x2000) & 0x7FF];
+        // Vert 0 => $2000 $2400 $2000 $2400
+        // Hori 1 => $2000 $2000 $2800 $2800
+
+        // NOTE: Don't ask me how I came up with this bit magic. It took me half an
+        // hour at midnight to come up with this one-liner instead of like two
+        // if statements.
+        address &= ~(0x800 >> machine->rom.nametable_layout);
+
+        return &machine->ppu_vram[address - 0x2000];
     }
 
     if (address >= 0x3000 && address < 0x3F00) {
-        return &machine->ppu_vram[(address - 0x3000) & 0x7FF];
+        return mem_ppu_helper(machine, address - 0x1000);
     }
 
     // Internal palette
     if (address >= 0x3F00 && address < 0x4000) {
-        // mod $20
-        return &machine->ppu.palette_indices[address & 0x19];
+        // Wrap to 32 bit index
+        u16 index = address & 0x1F;
+
+        // Sprite color 0 mirrors background color 0 in every palette
+        b8 is_sprite = index & 0x10;
+        if (is_sprite != 0 && (index & 0x3) == 0) {
+            index -= 0x10;
+        }
+
+        return &machine->ppu.palette_indices[index];
     }
 
     return NULL;
@@ -192,7 +209,7 @@ u8 mem_ppu_read(MemoryBus* bus, u16 address) {
 
 void mem_ppu_write(MemoryBus* bus, u16 address, u8 value) {
     Machine* machine = bus->ctx;
-    printf("PPU: WRITE(%d:%d): $%04X, %d ($%02X)\n", machine->ppu.scanline, machine->ppu.dot, address, value, value);
+    // printf("PPU: WRITE(%d:%d): $%04X, %d ($%02X)\n", machine->ppu.scanline, machine->ppu.dot, address, value, value);
     *mem_ppu_helper(machine, address) = value;
 }
 
@@ -201,7 +218,27 @@ u16 step_instruction(Machine* machine) {
     assert(cpu->t == 0);
 
     u16 start_address = cpu->pc;
-    printf("%s\n", OPCODE_STRING_TABLE[*(u8*) mem_cpu_helper(machine, machine->cpu.address_bus)]);
+
+    printf("$%04X:    %s", cpu->pc, OPCODE_STRING_TABLE[*mem_cpu_helper(machine, cpu->pc)]);
+    switch (cpu->interrupt_type) {
+        case NONE:
+            break;
+        case NMI:
+            printf(" (NMI)");
+            break;
+        case RESET:
+            printf(" (RESET)");
+            break;
+        case IRQ:
+            printf(" (IRQ)");
+            break;
+        case BRK:
+            printf(" (BRK)");
+            break;
+        default:
+            UNREACHABLE();
+    }
+    printf("\n");
 
     cpu_step(cpu);
     while (cpu->t != 0) {
@@ -212,14 +249,27 @@ u16 step_instruction(Machine* machine) {
         }
     }
 
-    // print_cpu_status(cpu->p);
-    // printf("p = %d (0x%02X)\n", cpu->p, cpu->p);
-    // printf("a = %d (0x%02X)\n", cpu->a, cpu->a);
-    // printf("x = %d (0x%02X)\n", cpu->x, cpu->x);
-    // printf("s = %d (0x%02X)\n", cpu->s, cpu->s);
+    print_cpu_status(cpu->p);
+    printf("p = %d (0x%02X)\n", cpu->p, cpu->p);
+    printf("a = %d (0x%02X)\n", cpu->a, cpu->a);
+    printf("x = %d (0x%02X)\n", cpu->x, cpu->x);
+    printf("s = %d (0x%02X)\n", cpu->s, cpu->s);
     printf("\n");
 
     return start_address;
+}
+
+void print_bits(const void* data, u32 byte_count) {
+    for (u32 i = 0; i < byte_count; i++) {
+        u8 value = ((const u8*) data)[(byte_count-1) - i];
+        for (u32 j = 0; j < 8; j++) {
+            printf("%d", (value >> (7-j)) & 0x1);
+        }
+        if (i < byte_count-1) {
+            printf(" ");
+        }
+    }
+    printf("\n");
 }
 
 i32 main(void) {
@@ -289,8 +339,14 @@ i32 main(void) {
     // // LDA
     // m.cpu.nmi = 1;
     // step_instruction(&m);
-    // // JSR
+    // // JSR (NMI)
     // step_instruction(&m);
+    //
+    // // NMI routine
+    // step_instruction(&m);
+    // step_instruction(&m);
+    // step_instruction(&m);
+    //
     // // Subroutine
     // step_instruction(&m);
     // step_instruction(&m);
@@ -305,8 +361,9 @@ i32 main(void) {
     Machine machine = {
         // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
         .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/color_test.nes"),
     };
-    // print_nes_rom(machine.rom);
+    print_nes_rom(machine.rom);
     assert(machine.rom.mapper == 0 && machine.rom.submapper == 0);
 
     // Currently hard-coded to be an NMOS mapper.
@@ -326,10 +383,30 @@ i32 main(void) {
         });
     Ppu* ppu = &machine.ppu;
     ppu__debug_fill_pixels(ppu, 5);
+    machine.rom.nametable_layout = NT_LAYOUT_VERTICAL;
 
     // for (u32 i = 0; i < 5e5; i++) {
-    //     if (cpu->t == 0) {
-    //         printf("%s\n", OPCODE_STRING_TABLE[*(u8*) mem_cpu_helper(&machine, cpu->address_bus)]);
+    //     if (cpu->t == 0 && cpu->interrupt_type != NONE) {
+    //         printf("$%04X:    %s", cpu->pc, OPCODE_STRING_TABLE[*mem_cpu_helper(&machine, cpu->pc)]);
+    //         switch (cpu->interrupt_type) {
+    //             case NONE:
+    //                 break;
+    //             case NMI:
+    //                 printf(" (NMI)");
+    //                 break;
+    //             case RESET:
+    //                 printf(" (RESET)");
+    //                 break;
+    //             case IRQ:
+    //                 printf(" (IRQ)");
+    //                 break;
+    //             case BRK:
+    //                 printf(" (BRK)");
+    //                 break;
+    //             default:
+    //                 UNREACHABLE();
+    //         }
+    //         printf("\n");
     //     }
     //     cpu_step(cpu);
     //
@@ -345,6 +422,7 @@ i32 main(void) {
     //
     // Initialize other stuff
     //
+    SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, &(char) {1});
     SDL_CHECK(SDL_Init(SDL_INIT_VIDEO));
 
     SDL_Window* window = NULL;
@@ -420,33 +498,30 @@ i32 main(void) {
 
     b8 is_dirty = true;
 
-    // u64 last_fps = SDL_GetTicksNS();
-    // u32 fps = 0;
+    u64 clock_hz = 21441960;
+    u64 clock_timer = 0;
+    u32 tick = 0;
+
+    u64 last = SDL_GetTicksNS();
     while (running) {
-        // fps++;
-        // if (SDL_GetTicksNS() - last_fps >= 1e9) {
-        //     printf("FPS: %u\n", fps);
-        //     fps = 0;
-        //     last_fps = SDL_GetTicksNS();
-        // }
+        u64 now = SDL_GetTicksNS();
+        u64 dt_ns = now - last;
+        last = now;
 
-        // Update machine
-        for (u32 i = 0; i < 100; i++) {
-            if (cpu->t == 0) {
-                u8* ptr = mem_cpu_helper(&machine, cpu->pc);
-                printf("$%04X: $%04lX / $%04X\n", cpu->pc, ptr - machine.rom.prg_rom, machine.rom.prg_rom_size);
-                printf("%p\n", machine.rom.prg_rom);
-                printf("$%04X:    %s\n", cpu->pc, OPCODE_STRING_TABLE[*mem_cpu_helper(&machine, cpu->pc)]);
+        clock_timer += dt_ns;
+        while (clock_timer >= 1.0e9 / clock_hz) {
+            if (tick % 12 == 0) {
+                cpu_step(cpu);
             }
-            cpu_step(cpu);
 
-            ppu_step(ppu);
-            ppu_step(ppu);
-            ppu_step(ppu);
+            if (tick % 4 == 0) {
+                ppu_step(ppu);
+            }
 
             cpu->nmi = ppu->vblank_nmi_signal;
 
             if (ppu->vblank_flag && is_dirty) {
+                // printf("VBlanking\n");
                 is_dirty = false;
                 // printf("%lu\n", cpu->cycle);
                 // printf("VBlank (%d:%d)\n", ppu->scanline, ppu->dot);
@@ -466,7 +541,38 @@ i32 main(void) {
             } else if (!ppu->vblank_flag) {
                 is_dirty = true;
             }
+
+            tick++;
+            clock_timer -= 1e9 / clock_hz;
         }
+
+        // fps++;
+        // if (SDL_GetTicksNS() - last_fps >= 1e9) {
+        //     printf("FPS: %u\n", fps);
+        //     fps = 0;
+        //     last_fps = SDL_GetTicksNS();
+        // }
+
+            // if (cpu->t == 0 && cpu->pc != 0x8057) {
+            //     printf("$%04X:    %s", cpu->pc, OPCODE_STRING_TABLE[*mem_cpu_helper(&machine, cpu->pc)]);
+            //     switch (cpu->interrupt_type) {
+            //         case NONE:
+            //             break;
+            //         case NMI:
+            //             printf(" (NMI)");
+            //             break;
+            //         case RESET:
+            //             printf(" (RESET)");
+            //             break;
+            //         case IRQ:
+            //             printf(" (IRQ)");
+            //             break;
+            //         case BRK:
+            //             printf(" (BRK)");
+            //             break;
+            //     }
+            //     printf("\n");
+            // }
 
         // Update visualizer
         SDL_Event ev = {0};
@@ -518,12 +624,13 @@ i32 main(void) {
         };
         SDL_RenderTexture(renderer, output, &src, &dst);
 
-        // SDL_RenderTexture(renderer, pattern_table0, NULL, &(SDL_FRect) {
-        //         .x = 8,
-        //         .y = 8,
-        //         .w = 256,
-        //         .h = 256,
-        //     });
+        SDL_RenderTexture(renderer, pattern_table0, NULL, &(SDL_FRect) {
+                .x = 8,
+                .y = 8,
+                .w = 256,
+                .h = 256,
+            });
+
         SDL_RenderPresent(renderer);
     }
 

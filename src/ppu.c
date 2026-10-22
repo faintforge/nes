@@ -163,6 +163,134 @@ Ppu ppu_init(MemoryBus bus) {
     return ppu;
 }
 
+static void ppu__inc_hori(Ppu* ppu) {
+    // Stolen from: www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
+
+    // Coarse-X is at end of nametable
+    if ((ppu->v & 0x1F) == 31) {
+        ppu->v &= ~0x1F; // Reset coarse-X
+        ppu->v ^= 0x400; // Flip bit 10 responsible for horizontal nametable
+                         // index.
+    } else {
+        ppu->v++;
+    }
+}
+
+static void ppu__inc_vert(Ppu* ppu) {
+    // Stolen from: www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
+
+    if (get_bits(ppu->v, 12, 14) < 7) {
+        ppu->v += 0x1000;
+    } else {
+        // Clear fine-Y
+        ppu->v = clear_bits(ppu->v, 12, 14);
+
+        // Get coarse-Y
+        u16 y = get_bits(ppu->v, 5, 9);
+        if (y == 29) {
+            y = 0;
+            // Switch vertical nametable
+            ppu->v ^= 0x8000;
+        } else if (y == 31) {
+            y = 0;
+        } else {
+            y++;
+        }
+
+        // Update coarse-Y
+        ppu->v = clear_bits(ppu->v, 5, 9);
+        ppu->v |= y << 5;
+    }
+}
+
+static void ppu__scanline(Ppu* ppu, b8 pre_render) {
+    // Idle cycle
+    if (ppu->dot == 0) {
+    } else if (ppu->dot >= 1 && ppu->dot <= 256) {
+        // 1. Fetch nametable
+        // 2. Fetch attribute table
+        // 3. Pattern table tile low
+        // 4. Pattern table tile high
+
+        // Pattern address
+        // https://www.nesdev.org/wiki/PPU_pattern_tables
+        // 0HNNNN NNNNPyyy
+        // Fine-Y
+        u16 pattern_addr_plane0 = get_bits(ppu->v, 12, 14);
+        pattern_addr_plane0 |= ppu->nt_bus << 4;
+        pattern_addr_plane0 |= ppu->background_pattern_address;
+
+        u8 t = (ppu->dot - 1) & 0x7;
+        if ((t & 1) == 0) {
+            u16 v = ppu->v;
+            u16 addresses[4] = {
+                // NT
+                0x2000 | (v & 0x0FFF),
+                // AT
+                0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07),
+                // Pattern low
+                pattern_addr_plane0,
+                // Pattern high
+                pattern_addr_plane0 ^ 0x8, // Filp plane bit (bit 3)
+            };
+            ppu->address_bus = addresses[t >> 1];
+        } else {
+            u8* buses[4] = {
+                &ppu->nt_bus,
+                &ppu->at_bus,
+                &ppu->pattern_bus_low,
+                &ppu->pattern_bus_high,
+            };
+            *buses[t / 2] = ppu->bus.read(&ppu->bus, ppu->address_bus);
+        }
+
+        if (!pre_render && t == 7) {
+            u8 pattern_plane0 = ppu->pattern_bus_low;
+            u8 pattern_plane1 = ppu->pattern_bus_high;
+            for (i32 dx = 0; dx < 8; dx++) {
+                i32 x = ppu->dot-8 + dx;
+                i32 y = ppu->scanline;
+                u32 pixel_idx = (LEFT_BORDER_WIDTH + x) + y*OUTPUT_WIDTH;
+
+                u8 coarse_x = get_bits(ppu->v, 0, 4);
+                u8 coarse_y = get_bits(ppu->v, 5, 9);
+                u8 quadrant_x = (coarse_x / 2) & 0x1;
+                u8 quadrant_y = (coarse_y / 2) & 0x1;
+
+                // yx yx yx yx
+                // 11 10 01 00
+                // BR BL TR TL
+                u8 attribute = (ppu->at_bus >> 2*(quadrant_x + quadrant_y*2)) & 0x3;
+
+                u8 palette = attribute;
+                u8 palette_entry = get_bit(pattern_plane0, 7-dx) | (get_bit(pattern_plane1, 7-dx) << 1);
+                u8 palette_index = palette*4 + palette_entry;
+                assert(palette_index <= 0xF);
+                u8 color = ppu->palette_indices[palette_index];
+
+                if (palette_entry == 0) {
+                    ppu->pixels[pixel_idx] = ppu->palette_indices[0];
+                } else {
+                    ppu->pixels[pixel_idx] = color;
+                }
+            }
+
+            ppu__inc_hori(ppu);
+        }
+
+        if (ppu->dot == 256) {
+            ppu__inc_vert(ppu);
+        }
+    } else if (ppu->dot == 257) {
+        // https://www.nesdev.org/wiki/PPU_scrolling#At_dot_257_of_each_scanline
+
+        // Copy coarse-X
+        ppu->v = copy_bits(ppu->v, ppu->t, 0x0, 0x4);
+        // Copy nametable-X
+        ppu->v = copy_bits(ppu->v, ppu->t, 0xA, 0xA);
+    }
+}
+
 void ppu_step(Ppu* ppu) {
     if (ppu->dot > 340) {
         ppu->dot = 0;
@@ -183,74 +311,23 @@ void ppu_step(Ppu* ppu) {
     if (ppu->scanline == -1) {
         if (ppu->dot == 1) {
             ppu->vblank_flag = 0;
+            ppu->vblank_nmi_signal = 0;
+        } else if (ppu->dot >= 280 && ppu->dot <= 304) {
+            // FEDCBA98 76543210
+            // 0YYYnnyy yyyxxxxx
+
+            // Copy coarse-Y
+            ppu->v = copy_bits(ppu->v, ppu->t, 0x5, 0x9);
+            // Copy nametable-Y + fine-Y
+            ppu->v = copy_bits(ppu->v, ppu->t, 0xB, 0xE);
         }
-        ppu->v = ppu->t;
+
+        ppu__scanline(ppu, true);
     }
     // Visible lines
     else if (ppu->scanline >= 0 && ppu->scanline < 240) {
-        // Idle cycle
-        if (ppu->dot == 0) {
-        } else if (ppu->dot >= 1 && ppu->dot <= 256) {
-            // 1. Fetch nametable
-            // 2. Fetch attribute table
-            // 3. Pattern table tile low
-            // 4. Pattern table tile high
-
-            u16 v = ppu->v;
-            u16 addresses[4] = {
-                // NT
-                0x2000 | (v & 0x0FFF),
-                // AT
-                0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07),
-                // Pattern low
-                ppu->background_pattern_address + ppu->nt_bus + 8,
-                // Pattern high
-                ppu->background_pattern_address + ppu->nt_bus,
-            };
-
-            u8 t = (ppu->dot - 1) & 0x7;
-            if ((t & 1) == 0) {
-                ppu->address_bus = addresses[t >> 1];
-            } else {
-                u8* buses[4] = {
-                    &ppu->nt_bus,
-                    &ppu->at_bus,
-                    (u8*) &ppu->pattern_bus_low,
-                    ((u8*) &ppu->pattern_bus_high) + 1,
-                };
-                *buses[t >> 1] = ppu->bus.read(&ppu->bus, ppu->address_bus);
-            }
-
-            if (t == 7) {
-                u8 pattern_plane0 = ppu->pattern_bus_low;
-                u8 pattern_plane1 = ppu->pattern_bus_high;
-                for (i32 dx = 0; dx < 8; dx++) {
-                    i32 x = ppu->dot-8 + dx;
-                    i32 y = ppu->scanline;
-                    u32 pixel_idx = (LEFT_BORDER_WIDTH + x) + y*OUTPUT_WIDTH;
-
-                    // u8 coarse_x = ppu->v & 0x7;
-                    // u8 coarse_y = (ppu->v >> 5) & 0x7;
-                    // u8 attribute = ppu->at_bus;
-
-                    // TODO: Figure out what palette should be selected based on
-                    // attribute.
-                    u8 palette = 0;
-                    u8 palette_entry = get_bit(pattern_plane0, 7-dx) | (get_bit(pattern_plane1, 7-dx) << 1);
-                    u8 color = palette*3 + palette_entry;
-
-                    if (palette == 0 && palette_entry == 0) {
-                        ppu->pixels[pixel_idx] = color;
-                    } else {
-                        ppu->pixels[pixel_idx] = 0;
-                    }
-
-                }
-
-                // TODO: Figure out how to increase horizontally and
-                // vertically.
-                ppu->v += 1;
-            }
+        if (ppu->mask.background && ppu->mask.sprite) {
+            ppu__scanline(ppu, false);
         }
     }
     // Post render line (idle)
@@ -260,8 +337,6 @@ void ppu_step(Ppu* ppu) {
         if (ppu->dot == 1) {
             ppu->vblank_flag = 1;
             ppu->vblank_nmi_signal = ppu->vblank_nmi_enabled;
-        } else if (ppu->dot == 2) {
-            ppu->vblank_nmi_signal = 0;
         }
     }
 
@@ -428,15 +503,12 @@ void ppu_scroll(Ppu* ppu, u8 value) {
 void ppu_address(Ppu* ppu, u8 value) {
     if (ppu->w == 0) {
         // Clear high bits
-        ppu->t &= ~((u16) 0xF << 8);
-        ppu->t |= ((u16) value) << 8;
-        printf("ppu_addr_high: $%02X\n", value);
+        ppu->t &= 0x00FF;
+        ppu->t |= ((u16) value & 0x3F) << 8;
     } else {
-        ppu->t &= ~(u16) 0xF;
+        ppu->t &= 0xFF00;
         ppu->t |= value;
         ppu->ppu_address_delay = 1;
-        printf("ppu_addr_low: $%02X\n", value);
-        printf("ppu_addr_full: $%04X\n", ppu->t);
     }
 
     ppu->w = !ppu->w;

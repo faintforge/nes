@@ -137,7 +137,7 @@ void print_nes_rom(NesRom rom) {
     printf("CHR-RAM size: %u bytes\n", rom.chr_ram_size);
     printf("PRG-NVRAM size: %u bytes\n", rom.prg_nvram_size);
     printf("CHR-NVRAM size: %u bytes\n", rom.chr_nvram_size);
-    printf("Nametable layout: %d\n", rom.nametable_layout);
+    printf("Nametable layout: %s\n", rom.nametable_layout ? "Vertical" : "Horizontal");
     printf("Battery: %s\n", rom.battery ? "Present" : "Not present");
     printf("Trainer area: %s\n", rom.has_trainer ? "Present" : "Not present");
     printf("Alt nametables: %s\n", rom.alt_nametables ? "Yes" : "No");

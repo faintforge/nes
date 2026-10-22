@@ -14,6 +14,11 @@ typedef enum NesRomVariation {
     NES_ROM_VARIATION__COUNT,
 } NesRomVariation;
 
+typedef enum NtLayout {
+    NT_LAYOUT_VERTICAL,
+    NT_LAYOUT_HORIZONTAL,
+} NtLayout;
+
 static const char* const NES_ROM_VARIATION_STRING[NES_ROM_VARIATION__COUNT] = {
     "archac iNES", "iNES 0.7", "iNES", "NES 2.0",
 };
@@ -34,7 +39,7 @@ struct NesRom {
     u32 prg_nvram_size;
     u32 chr_nvram_size;
 
-    u8 nametable_layout;
+    NtLayout nametable_layout;
     u8 battery;
     b8 has_trainer;
     u8 alt_nametables;

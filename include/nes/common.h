@@ -36,6 +36,10 @@ typedef u32 b32;
 
 #define get_bit(value, bit_index) (((value) >> (bit_index)) & 1)
 #define get_bits(value, start, end) (((value) >> (start)) & ((1 << ((end) - (start) + 1)) - 1))
+#define bit_mask(start, end) (((1 << ((end) - (start) + 1)) - 1) << (start))
+#define mask_bits(value, start, end) ((value) & bit_mask(start, end))
+#define clear_bits(value, start, end) ((value) & ~bit_mask(start, end))
+#define copy_bits(dst, src, start, end) (((dst) & ~bit_mask(start, end)) | ((src) & bit_mask(start, end)))
 #define nibble_low(value) ((value) & 0xF)
 #define nibble_high(value) (((value) >> 4) & 0xF)
 
