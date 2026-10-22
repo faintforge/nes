@@ -44,6 +44,7 @@ struct Ppu {
     u16 address_bus;
     u8 vram_bus;
     u8 io_bus;
+    u8 read_data_latch;
 
     Color palette[512];
     b8 palette_has_emph;

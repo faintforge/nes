@@ -268,6 +268,9 @@ static void ppu__scanline(Ppu* ppu, b8 pre_render) {
                 assert(palette_index <= 0xF);
                 u8 color = ppu->palette_indices[palette_index];
 
+                // TODO: Replace this immediate pixel rendering into a shift
+                // register based version, more closely following how the
+                // original NES PPU works.
                 if (palette_entry == 0) {
                     ppu->pixels[pixel_idx] = ppu->palette_indices[0];
                 } else {
@@ -291,6 +294,34 @@ static void ppu__scanline(Ppu* ppu, b8 pre_render) {
     }
 }
 
+static void ppu__background_step(Ppu* ppu) {
+    // Pre-render line
+    if (ppu->scanline == -1) {
+        if (ppu->dot >= 280 && ppu->dot <= 304) {
+            // FEDCBA98 76543210
+            // 0YYYnnyy yyyxxxxx
+
+            // Copy coarse-Y
+            ppu->v = copy_bits(ppu->v, ppu->t, 0x5, 0x9);
+            // Copy nametable-Y + fine-Y
+            ppu->v = copy_bits(ppu->v, ppu->t, 0xB, 0xE);
+        }
+        ppu__scanline(ppu, true);
+    }
+    // Visible lines
+    else if (ppu->scanline >= 0 && ppu->scanline < 240) {
+        ppu__scanline(ppu, false);
+    }
+    // Post render line (idle)
+    else if (ppu->scanline == 240) {}
+    // V-Blank lines 
+    else if (ppu->scanline >= 241) {}
+}
+
+static inline b8 ppu__rendering_disabled(const Ppu* ppu) {
+    return !ppu->mask.background && !ppu->mask.sprite;
+}
+
 void ppu_step(Ppu* ppu) {
     if (ppu->dot > 340) {
         ppu->dot = 0;
@@ -307,37 +338,19 @@ void ppu_step(Ppu* ppu) {
     }
     ppu->ppu_address_delay = max(-1, ppu->ppu_address_delay-1);
 
-    // Pre-render line
-    if (ppu->scanline == -1) {
-        if (ppu->dot == 1) {
-            ppu->vblank_flag = 0;
-            ppu->vblank_nmi_signal = 0;
-        } else if (ppu->dot >= 280 && ppu->dot <= 304) {
-            // FEDCBA98 76543210
-            // 0YYYnnyy yyyxxxxx
-
-            // Copy coarse-Y
-            ppu->v = copy_bits(ppu->v, ppu->t, 0x5, 0x9);
-            // Copy nametable-Y + fine-Y
-            ppu->v = copy_bits(ppu->v, ppu->t, 0xB, 0xE);
-        }
-
-        ppu__scanline(ppu, true);
+    if (ppu->scanline == -1 && ppu->dot == 1) {
+        ppu->vblank_flag = 0;
+        ppu->vblank_nmi_signal = 0;
+    } else if (ppu->scanline == 241 && ppu->dot == 1) {
+        ppu->vblank_flag = 1;
+        ppu->vblank_nmi_signal = ppu->vblank_nmi_enabled;
     }
-    // Visible lines
-    else if (ppu->scanline >= 0 && ppu->scanline < 240) {
-        if (ppu->mask.background && ppu->mask.sprite) {
-            ppu__scanline(ppu, false);
-        }
-    }
-    // Post render line (idle)
-    else if (ppu->scanline == 240) {}
-    // V-Blank lines 
-    else if (ppu->scanline >= 241) {
-        if (ppu->dot == 1) {
-            ppu->vblank_flag = 1;
-            ppu->vblank_nmi_signal = ppu->vblank_nmi_enabled;
-        }
+
+    if (!ppu__rendering_disabled(ppu)) {
+        ppu__background_step(ppu);
+        // ppu__sprite_step(ppu);
+
+        // Output pixels every 8 dots on visible scanlines
     }
 
     ppu->dot++;
@@ -422,6 +435,9 @@ void ppu_ctrl(Ppu* ppu, u8 value) {
     // Bitmask 00001100_00000000 = 0x0C00
     ppu->t &= ~0x0C00;
     ppu->t |= (value & 3) << 10;
+
+    // TODO: Writes to this register should be ignored until pre-render of the
+    // second frame.
 
     ppu->vram_increment = get_bit(value, 2);
     ppu->sprite_pattern_table_address = 0x1000 * get_bit(value, 3);
@@ -515,7 +531,8 @@ void ppu_address(Ppu* ppu, u8 value) {
 }
 
 u8 ppu_data_read(Ppu* ppu) {
-    u8 value = ppu->bus.read(&ppu->bus, ppu->v);
+    u8 prev_read = ppu->read_data_latch;
+    ppu->read_data_latch = ppu->bus.read(&ppu->bus, ppu->v);
     switch (ppu->vram_increment) {
         case VRAM_INCREMENT_ACROSS:
             ppu->v++;
@@ -526,7 +543,8 @@ u8 ppu_data_read(Ppu* ppu) {
         default:
             UNREACHABLE();
     }
-    return value;
+    ppu->v &= 0x7FFF;
+    return prev_read;
 }
 
 void ppu_data_write(Ppu* ppu, u8 value) {
@@ -541,10 +559,11 @@ void ppu_data_write(Ppu* ppu, u8 value) {
         default:
             UNREACHABLE();
     }
+    ppu->v &= 0x7FFF;
 }
 
 void ppu_oam_mdma(Ppu* ppu, u8 value) {
     (void) ppu;
     (void) value;
-    UNREACHABLE();
+    UNIMPLEMENTED();
 }
