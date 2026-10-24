@@ -266,13 +266,13 @@ static void ppu__scanline(Ppu* ppu, b8 pre_render) {
                 u8 palette_entry = get_bit(pattern_plane0, 7-dx) | (get_bit(pattern_plane1, 7-dx) << 1);
                 u8 palette_index = palette*4 + palette_entry;
                 assert(palette_index <= 0xF);
-                u8 color = ppu->palette_indices[palette_index];
+                u8 color = *ppu_get_color_ptr(ppu, palette_index);
 
                 // TODO: Replace this immediate pixel rendering into a shift
                 // register based version, more closely following how the
                 // original NES PPU works.
                 if (palette_entry == 0) {
-                    ppu->pixels[pixel_idx] = ppu->palette_indices[0];
+                    ppu->pixels[pixel_idx] = *ppu_get_bg_color_ptr(ppu);
                 } else {
                     ppu->pixels[pixel_idx] = color;
                 }
@@ -351,6 +351,19 @@ void ppu_step(Ppu* ppu) {
         // ppu__sprite_step(ppu);
 
         // Output pixels every 8 dots on visible scanlines
+    } else {
+        // TODO: Figure out how to properly output pixels when rendering is
+        // disabled.
+        if (ppu->scanline >= 0 && ppu->scanline < 240 &&
+                ppu->dot >= 1 && ppu->dot <= 256 &&
+                ((ppu->dot-1) & 0x7) == 0) {
+            for (i32 dx = 0; dx < 8; dx++) {
+                i32 x = ppu->dot-8 + dx;
+                i32 y = ppu->scanline;
+                u32 pixel_idx = (LEFT_BORDER_WIDTH + x) + y*OUTPUT_WIDTH;
+                ppu->pixels[pixel_idx] = *ppu_get_bg_color_ptr(ppu);
+            }
+        }
     }
 
     ppu->dot++;
@@ -428,6 +441,24 @@ Color ppu_decode_color(const Ppu* ppu, u8 color) {
     }
 
     return result;
+}
+
+u8* ppu_get_color_ptr(Ppu* ppu, u8 index) {
+    // Sprite color 0 mirrors background color 0 in every palette
+    b8 is_sprite = (index & 0x10) != 0;
+    if (is_sprite && (index & 0x3) == 0) {
+        index -= 0x10;
+    }
+    return &ppu->palette_indices[index];
+}
+
+u8* ppu_get_bg_color_ptr(Ppu* ppu) {
+    // Normal EXT pin
+    u8 index = 0;
+    if (ppu->v >= 0x3F00 && ppu->v < 0x4000) {
+        index = (ppu->v) & 0x1F;
+    }
+    return ppu_get_color_ptr(ppu, index);
 }
 
 void ppu_ctrl(Ppu* ppu, u8 value) {

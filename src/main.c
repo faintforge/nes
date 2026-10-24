@@ -146,7 +146,7 @@ void mem_cpu_write(MemoryBus* bus, u16 address, u8 value) {
     }
 
     if (address >= 0x8000) {
-        fprintf(stderr, "WARN: Writing to ROM!");
+        fprintf(stderr, "WARN: Writing to ROM!\n");
         // abort();
     }
 
@@ -177,17 +177,10 @@ u8* mem_ppu_helper(Machine* machine, u16 address) {
     }
 
     // Internal palette
+    // TODO: www.nesdev.org/wiki/PPU_registers#Reading_palette_RAM
     if (address >= 0x3F00 && address < 0x4000) {
-        // Wrap to 32 bit index
-        u16 index = address & 0x1F;
-
-        // Sprite color 0 mirrors background color 0 in every palette
-        b8 is_sprite = index & 0x10;
-        if (is_sprite != 0 && (index & 0x3) == 0) {
-            index -= 0x10;
-        }
-
-        return &machine->ppu.palette_indices[index];
+        u8 index = address & 0x1F;
+        return ppu_get_color_ptr(&machine->ppu, index);
     }
 
     return NULL;
@@ -273,88 +266,6 @@ void print_bits(const void* data, u32 byte_count) {
 }
 
 i32 main(void) {
-    // u8 rom[0x8000] = {0};
-    // // NMI vector
-    // rom[0xFFFA - 0x8000] = 0x00;
-    // rom[0xFFFB - 0x8000] = 0x90;
-    // // Reset vector
-    // rom[0xFFFC - 0x8000] = 0x00;
-    // rom[0xFFFD - 0x8000] = 0x80;
-    // // IRQ vector
-    // rom[0xFFFE - 0x8000] = 0x00;
-    // rom[0xFFFF - 0x8000] = 0x81;
-    //
-    // // NMI routine
-    // // NOP
-    // rom[0x1000] = 0xEA;
-    // // RTI
-    // rom[0x1001] = 0x40;
-    //
-    // // BRK
-    // rom[0x000] = 0x00;
-    // rom[0x001] = 0xEA;
-    // // LDA #imm
-    // rom[0x002] = 0xA9;
-    // rom[0x003] = 0xEA;
-    // // JSR abs
-    // rom[0x004] = 0x20;
-    // rom[0x005] = 0x00;
-    // rom[0x006] = 0x82;
-    // // NOP
-    // rom[0x007] = 0xEA;
-    //
-    // // IRQ routine
-    // // NOP
-    // rom[0x100] = 0xEA;
-    // // RTI
-    // rom[0x101] = 0x40;
-    //
-    // // Subroutine target
-    // // NOP
-    // rom[0x200] = 0xEA;
-    // // RTS
-    // rom[0x201] = 0x60;
-    //
-    // Machine m = {
-    //     .rom = (NesRom) {
-    //         .prg_rom_size = sizeof(rom),
-    //         .prg_rom = rom,
-    //     },
-    // };
-    // m.cpu = cpu_init((MemoryBus) {
-    //         .ctx = &m,
-    //         .read = mem_cpu_read,
-    //         .write = mem_cpu_write,
-    //     });
-    // m.cpu.s = 0xFF;
-    //
-    // // Init
-    // step_instruction(&m);
-    //
-    // // BRK
-    // step_instruction(&m);
-    // // IRQ routine
-    // step_instruction(&m);
-    // step_instruction(&m);
-    // // LDA
-    // m.cpu.nmi = 1;
-    // step_instruction(&m);
-    // // JSR (NMI)
-    // step_instruction(&m);
-    //
-    // // NMI routine
-    // step_instruction(&m);
-    // step_instruction(&m);
-    // step_instruction(&m);
-    //
-    // // Subroutine
-    // step_instruction(&m);
-    // step_instruction(&m);
-    // // NOP
-    // step_instruction(&m);
-    //
-    // return 0;
-
     //
     // Initialize NES
     //
@@ -363,6 +274,7 @@ i32 main(void) {
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
         .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/color_test.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/full_nes_palette.nes"),
     };
     print_nes_rom(machine.rom);
     assert(machine.rom.mapper == 0 && machine.rom.submapper == 0);
@@ -625,12 +537,12 @@ i32 main(void) {
         };
         SDL_RenderTexture(renderer, output, &src, &dst);
 
-        SDL_RenderTexture(renderer, pattern_table0, NULL, &(SDL_FRect) {
-                .x = 8,
-                .y = 8,
-                .w = 256,
-                .h = 256,
-            });
+        // SDL_RenderTexture(renderer, pattern_table0, NULL, &(SDL_FRect) {
+        //         .x = 8,
+        //         .y = 8,
+        //         .w = 256,
+        //         .h = 256,
+        //     });
 
         SDL_RenderPresent(renderer);
     }

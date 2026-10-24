@@ -7,7 +7,7 @@
 #define PICTURE_HEIGHT 240
 
 #define LEFT_BORDER_WIDTH 16
-#define RIGHT_BORDER_WIDTH 16
+#define RIGHT_BORDER_WIDTH 11
 #define BOTTOM_BORRDER_HEIGHT 2
 
 #define OUTPUT_WIDTH (PICTURE_WIDTH+LEFT_BORDER_WIDTH+RIGHT_BORDER_WIDTH)
@@ -38,6 +38,8 @@ struct PpuMask {
 typedef struct Ppu Ppu;
 struct Ppu {
     // Indices into palette. Call 'ppu_decode_color' to get RGB value.
+    // TODO: Remove this internal buffer. The step function should return a dot
+    // every step of a visible scanline describing the color and position.
     u8 pixels[OUTPUT_WIDTH*OUTPUT_HEIGHT];
 
     MemoryBus bus;
@@ -81,14 +83,6 @@ struct Ppu {
 
     i16 scanline;
     u16 dot;
-};
-
-typedef struct PpuDot8 PpuDot8;
-struct PpuDot8 {
-    b8 is_ready;
-    u8 pixels[8];
-    u8 x; // Dot
-    u8 y; // Scanline
 };
 
 extern Ppu ppu_init(MemoryBus bus);
