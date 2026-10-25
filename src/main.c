@@ -359,7 +359,6 @@ i32 main(void) {
     // SDL_SetTextureScaleMode(pattern_table0, SDL_SCALEMODE_PIXELART);
 
     b8 running = true;
-    b8 draw_border = true;
     b8 integer_scaling = false;
 
     b8 is_dirty = true;
@@ -429,15 +428,6 @@ i32 main(void) {
             .w = PICTURE_WIDTH,
             .h = PICTURE_HEIGHT,
         };
-
-        if (draw_border) {
-            src = (SDL_FRect) {
-                .x = 0,
-                .y = 0,
-                .w = PICTURE_WIDTH,
-                .h = PICTURE_HEIGHT,
-            };
-        }
 
         f32 x_scale = viewport.w / src.w;
         f32 y_scale = viewport.h / src.h;

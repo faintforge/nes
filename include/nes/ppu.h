@@ -74,14 +74,13 @@ struct Ppu {
     u8 pattern_bus_low;
     u8 pattern_bus_high;
 
-    Color shifter[16];
+    u8 shifter[16];
+    Color last_shifted;
 
     u8 oam_addr;
 
     i16 scanline;
     u16 dot;
-
-    i64 _tmp;
 };
 
 typedef struct PpuDot PpuDot;

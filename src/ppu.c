@@ -205,10 +205,6 @@ static void ppu__inc_vert(Ppu* ppu) {
 }
 
 static void ppu__shifter_push8(Ppu* ppu) {
-    // Shift left
-    memcpy(ppu->shifter, ppu->shifter+8, 8*sizeof(*ppu->shifter));
-    ppu->_tmp += 8;
-
     u8 pattern_plane0 = ppu->pattern_bus_low;
     u8 pattern_plane1 = ppu->pattern_bus_high;
     u8 coarse_x = get_bits(ppu->v, 0, 4);
@@ -232,27 +228,25 @@ static void ppu__shifter_push8(Ppu* ppu) {
             color = *ppu_get_bg_color_ptr(ppu);
         }
 
-        // NOTE: Decode here because if we just store indices into the palette
-        // index color emph and grayscale won't work.
-        ppu->shifter[8+dx] = ppu_decode_color(ppu, color);
+        ppu->shifter[8+dx] = color;
     }
 }
 
 static Color ppu__shifter_pull(Ppu* ppu) {
-    // log_debug("%ld", ppu->_tmp);
-    ppu->_tmp--;
-    Color result = ppu->shifter[ppu->x];
+    ppu->last_shifted = ppu_decode_color(ppu, ppu->shifter[ppu->x]);
     // Shift left
     memmove(ppu->shifter, ppu->shifter+1, 15*sizeof(*ppu->shifter));
-    ppu->shifter[15] = (Color) {255, 0, 255};
+    ppu->shifter[15] = 0;
     // assert(!(result.r == 255 && result.g == 0 && result.b == 255));
-    return result;
+    return ppu->last_shifted;
 }
 
 static void ppu__scanline(Ppu* ppu) {
     // Idle cycle
     if (ppu->dot == 0) {
     } else if (ppu->dot >= 1 && ppu->dot <= 256) {
+        ppu__shifter_pull(ppu);
+
         // 1. Fetch nametable
         // 2. Fetch attribute table
         // 3. Pattern table tile low
@@ -306,6 +300,7 @@ static void ppu__scanline(Ppu* ppu) {
         // Copy nametable-X
         ppu->v = copy_bits(ppu->v, ppu->t, 0xA, 0xA);
     }
+    // TODO: Fetch tiles for next scanline on the next dots.
 }
 
 static void ppu__background_step(Ppu* ppu) {
@@ -371,7 +366,7 @@ PpuDot ppu_step(Ppu* ppu) {
                 ppu->dot >= 1 && ppu->dot <= 256) {
             result = (PpuDot) {
                 .visible = true,
-                .color = ppu__shifter_pull(ppu),
+                .color = ppu->last_shifted,
                 .x = ppu->dot-1,
                 .y = ppu->scanline,
             };
