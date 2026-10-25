@@ -37,11 +37,6 @@ struct PpuMask {
 
 typedef struct Ppu Ppu;
 struct Ppu {
-    // Indices into palette. Call 'ppu_decode_color' to get RGB value.
-    // TODO: Remove this internal buffer. The step function should return a dot
-    // every step of a visible scanline describing the color and position.
-    u8 pixels[OUTPUT_WIDTH*OUTPUT_HEIGHT];
-
     MemoryBus bus;
     u16 address_bus;
     u8 vram_bus;
@@ -79,20 +74,36 @@ struct Ppu {
     u8 pattern_bus_low;
     u8 pattern_bus_high;
 
+    Color shifter[16];
+
     u8 oam_addr;
 
     i16 scanline;
     u16 dot;
+
+    i64 _tmp;
+};
+
+typedef struct PpuDot PpuDot;
+struct PpuDot {
+    b8 visible;
+    Color color;
+    // Dot
+    u16 x;
+    // Scanline
+    u16 y;
 };
 
 extern Ppu ppu_init(MemoryBus bus);
-extern void ppu_step(Ppu* ppu);
+extern PpuDot ppu_step(Ppu* ppu);
 
 // Reads .pal formatted data. Expects 'palette' to be filled with 3-byte long
 // colors in RGB order. 'palette_size' should reflect the byte-count of
 // 'palette', eg. the amount of colors*3.
 extern void ppu_load_palette(Ppu* ppu, const u8* palette, u32 palette_size);
 extern Color ppu_decode_color(const Ppu* ppu, u8 color);
+extern u8* ppu_get_color_ptr(Ppu* ppu, u8 index);
+extern u8* ppu_get_bg_color_ptr(Ppu* ppu);
 
 // Memory mapped operations
 extern void ppu_ctrl(Ppu* ppu, u8 value);
@@ -106,8 +117,5 @@ extern void ppu_address(Ppu* ppu, u8 value);
 extern u8   ppu_data_read(Ppu* ppu);
 extern void ppu_data_write(Ppu* ppu, u8 value);
 extern void ppu_oam_mdma(Ppu* ppu, u8 value);
-
-// If index == -1 draws whole palette repeating over whole screen.
-extern void ppu__debug_fill_pixels(Ppu* ppu, i8 color_index);
 
 #endif // PPU_H

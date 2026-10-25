@@ -4,6 +4,7 @@
 #include "nes/ppu.h"
 #include "nes/rom.h"
 #include "nes/opcode_table.h"
+#include "nes/log.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -266,13 +267,15 @@ void print_bits(const void* data, u32 byte_count) {
 }
 
 i32 main(void) {
+    logger_register_callback(log_stdout_callback, NULL);
+
     //
     // Initialize NES
     //
     Machine machine = {
         // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
-        .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
+        .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/color_test.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/full_nes_palette.nes"),
     };
@@ -295,47 +298,12 @@ i32 main(void) {
             .write = mem_ppu_write,
         });
     Ppu* ppu = &machine.ppu;
-    ppu__debug_fill_pixels(ppu, 5);
     machine.rom.nametable_layout = NT_LAYOUT_VERTICAL;
-
-    // for (u32 i = 0; i < 5e5; i++) {
-    //     if (cpu->t == 0 && cpu->interrupt_type != NONE) {
-    //         printf("$%04X:    %s", cpu->pc, OPCODE_STRING_TABLE[*mem_cpu_helper(&machine, cpu->pc)]);
-    //         switch (cpu->interrupt_type) {
-    //             case NONE:
-    //                 break;
-    //             case NMI:
-    //                 printf(" (NMI)");
-    //                 break;
-    //             case RESET:
-    //                 printf(" (RESET)");
-    //                 break;
-    //             case IRQ:
-    //                 printf(" (IRQ)");
-    //                 break;
-    //             case BRK:
-    //                 printf(" (BRK)");
-    //                 break;
-    //             default:
-    //                 UNREACHABLE();
-    //         }
-    //         printf("\n");
-    //     }
-    //     cpu_step(cpu);
-    //
-    //     ppu_step(ppu);
-    //     ppu_step(ppu);
-    //     ppu_step(ppu);
-    //
-    //     cpu->nmi = ppu->vblank_nmi_signal;
-    // }
-    //
-    // return 0;
 
     //
     // Initialize other stuff
     //
-    SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, &(char) {1});
+    SDL_CHECK(SDL_SetHint(SDL_HINT_NO_SIGNAL_HANDLERS, "1"));
     SDL_CHECK(SDL_Init(SDL_INIT_VIDEO));
 
     SDL_Window* window = NULL;
@@ -343,67 +311,52 @@ i32 main(void) {
     SDL_CHECK(SDL_CreateWindowAndRenderer("nesemu", 1280, 720, 0, &window, &renderer));
     // SDL_SetWindowResizable(window, true);
 
-    SDL_Texture* output = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, OUTPUT_WIDTH, OUTPUT_HEIGHT);
+    u8 output_pixels[PICTURE_WIDTH*PICTURE_HEIGHT*4] = {0};
+    SDL_Texture* output = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, PICTURE_WIDTH, PICTURE_HEIGHT);
     SDL_SetTextureScaleMode(output, SDL_SCALEMODE_PIXELART);
 
-    {
-        u8* pixels = NULL;
-        i32 pitch = -1;
-        if (SDL_LockTexture(output, NULL, (void**) &pixels, &pitch)) {
-            for (u32 i = 0; i < OUTPUT_WIDTH*OUTPUT_HEIGHT; i++) {
-                Color color = ppu_decode_color(ppu, ppu->pixels[i]);
-                pixels[i*4+0] = color.r;
-                pixels[i*4+1] = color.g;
-                pixels[i*4+2] = color.b;
-                pixels[i*4+3] = 255;
-            }
-            SDL_UnlockTexture(output);
-        }
-    }
-
-    // Tiles in pattern table = 16*16
-    // Tile size = 8*8 pixels
-    #define TILE_SIZE 8
-    #define PATTERN_SIZE 16
-    SDL_Texture* pattern_table0 = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, PATTERN_SIZE*TILE_SIZE, PATTERN_SIZE*TILE_SIZE);
-    u8 pixels[PATTERN_SIZE*PATTERN_SIZE * TILE_SIZE*TILE_SIZE * 4] = {0};
-    const u8* pattern_data = machine.rom.chr_rom;
-    for (u32 tile_y = 0; tile_y < PATTERN_SIZE; tile_y++) {
-        for (u32 tile_x = 0; tile_x < PATTERN_SIZE; tile_x++) {
-            u32 tile_idx = (tile_y << 4) | tile_x;
-            for (u32 py = 0; py < 8; py++) {
-                u8 plane0 = pattern_data[0x0000 + tile_idx*16 + py];
-                u8 plane1 = pattern_data[0x0000 + tile_idx*16 + 8 + py];
-                for (u32 px = 0; px < 8; px++) {
-                    u8 color = get_bit(plane0, 7-px) | (get_bit(plane1, 7-px) << 1);
-                    color = (u8[]) {
-                        0,
-                        64,
-                        128,
-                        255,
-                    }[color];
-
-                    u32 x = tile_x*TILE_SIZE + px;
-                    u32 y = tile_y*TILE_SIZE + py;
-                    u32 pixel_idx = x + y*PATTERN_SIZE*TILE_SIZE;
-
-                    pixels[pixel_idx*4 + 0] = color;
-                    pixels[pixel_idx*4 + 1] = color;
-                    pixels[pixel_idx*4 + 2] = color;
-                    pixels[pixel_idx*4 + 3] = 0xFF;
-                }
-            }
-
-        }
-    }
-
-    SDL_UpdateTexture(pattern_table0, &(SDL_Rect) {
-            .x = 0,
-            .y = 0,
-            .w = 16*8,
-            .h = 16*8,
-        }, pixels, 16*8*4);
-    SDL_SetTextureScaleMode(pattern_table0, SDL_SCALEMODE_PIXELART);
+    // // Tiles in pattern table = 16*16
+    // // Tile size = 8*8 pixels
+    // #define TILE_SIZE 8
+    // #define PATTERN_SIZE 16
+    // SDL_Texture* pattern_table0 = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, PATTERN_SIZE*TILE_SIZE, PATTERN_SIZE*TILE_SIZE);
+    // u8 pixels[PATTERN_SIZE*PATTERN_SIZE * TILE_SIZE*TILE_SIZE * 4] = {0};
+    // const u8* pattern_data = machine.rom.chr_rom;
+    // for (u32 tile_y = 0; tile_y < PATTERN_SIZE; tile_y++) {
+    //     for (u32 tile_x = 0; tile_x < PATTERN_SIZE; tile_x++) {
+    //         u32 tile_idx = (tile_y << 4) | tile_x;
+    //         for (u32 py = 0; py < 8; py++) {
+    //             u8 plane0 = pattern_data[0x0000 + tile_idx*16 + py];
+    //             u8 plane1 = pattern_data[0x0000 + tile_idx*16 + 8 + py];
+    //             for (u32 px = 0; px < 8; px++) {
+    //                 u8 color = get_bit(plane0, 7-px) | (get_bit(plane1, 7-px) << 1);
+    //                 color = (u8[]) {
+    //                     0,
+    //                     64,
+    //                     128,
+    //                     255,
+    //                 }[color];
+    //
+    //                 u32 x = tile_x*TILE_SIZE + px;
+    //                 u32 y = tile_y*TILE_SIZE + py;
+    //                 u32 pixel_idx = x + y*PATTERN_SIZE*TILE_SIZE;
+    //
+    //                 pixels[pixel_idx*4 + 0] = color;
+    //                 pixels[pixel_idx*4 + 1] = color;
+    //                 pixels[pixel_idx*4 + 2] = color;
+    //                 pixels[pixel_idx*4 + 3] = 0xFF;
+    //             }
+    //         }
+    //     }
+    // }
+    //
+    // SDL_UpdateTexture(pattern_table0, &(SDL_Rect) {
+    //         .x = 0,
+    //         .y = 0,
+    //         .w = 16*8,
+    //         .h = 16*8,
+    //     }, pixels, 16*8*4);
+    // SDL_SetTextureScaleMode(pattern_table0, SDL_SCALEMODE_PIXELART);
 
     b8 running = true;
     b8 draw_border = true;
@@ -428,29 +381,21 @@ i32 main(void) {
             }
 
             if (tick % 4 == 0) {
-                ppu_step(ppu);
+                PpuDot dot = ppu_step(ppu);
+
+                if (dot.visible) {
+                    output_pixels[(dot.x + dot.y*PICTURE_WIDTH)*4 + 0] = dot.color.r;
+                    output_pixels[(dot.x + dot.y*PICTURE_WIDTH)*4 + 1] = dot.color.g;
+                    output_pixels[(dot.x + dot.y*PICTURE_WIDTH)*4 + 2] = dot.color.b;
+                    output_pixels[(dot.x + dot.y*PICTURE_WIDTH)*4 + 3] = 255;
+                }
             }
 
             cpu->nmi = ppu->vblank_nmi_signal;
 
             if (ppu->vblank_flag && is_dirty) {
-                // printf("VBlanking\n");
                 is_dirty = false;
-                // printf("%lu\n", cpu->cycle);
-                // printf("VBlank (%d:%d)\n", ppu->scanline, ppu->dot);
-
-                u8* pixels = NULL;
-                i32 pitch = -1;
-                if (SDL_LockTexture(output, NULL, (void**) &pixels, &pitch)) {
-                    for (u32 i = 0; i < OUTPUT_WIDTH*OUTPUT_HEIGHT; i++) {
-                        Color color = ppu_decode_color(ppu, ppu->pixels[i]);
-                        pixels[i*4+0] = color.r;
-                        pixels[i*4+1] = color.g;
-                        pixels[i*4+2] = color.b;
-                        pixels[i*4+3] = 255;
-                    }
-                    SDL_UnlockTexture(output);
-                }
+                SDL_UpdateTexture(output, NULL, output_pixels, PICTURE_WIDTH*4);
             } else if (!ppu->vblank_flag) {
                 is_dirty = true;
             }
@@ -458,34 +403,6 @@ i32 main(void) {
             tick++;
             clock_timer -= 1e9 / clock_hz;
         }
-
-        // fps++;
-        // if (SDL_GetTicksNS() - last_fps >= 1e9) {
-        //     printf("FPS: %u\n", fps);
-        //     fps = 0;
-        //     last_fps = SDL_GetTicksNS();
-        // }
-
-            // if (cpu->t == 0 && cpu->pc != 0x8057) {
-            //     printf("$%04X:    %s", cpu->pc, OPCODE_STRING_TABLE[*mem_cpu_helper(&machine, cpu->pc)]);
-            //     switch (cpu->interrupt_type) {
-            //         case NONE:
-            //             break;
-            //         case NMI:
-            //             printf(" (NMI)");
-            //             break;
-            //         case RESET:
-            //             printf(" (RESET)");
-            //             break;
-            //         case IRQ:
-            //             printf(" (IRQ)");
-            //             break;
-            //         case BRK:
-            //             printf(" (BRK)");
-            //             break;
-            //     }
-            //     printf("\n");
-            // }
 
         // Update visualizer
         SDL_Event ev = {0};
@@ -507,7 +424,7 @@ i32 main(void) {
         SDL_CHECK(SDL_GetRenderViewport(renderer, &viewport));
 
         SDL_FRect src = {
-            .x = LEFT_BORDER_WIDTH,
+            .x = 0,
             .y = 0,
             .w = PICTURE_WIDTH,
             .h = PICTURE_HEIGHT,
@@ -517,8 +434,8 @@ i32 main(void) {
             src = (SDL_FRect) {
                 .x = 0,
                 .y = 0,
-                .w = OUTPUT_WIDTH,
-                .h = OUTPUT_HEIGHT,
+                .w = PICTURE_WIDTH,
+                .h = PICTURE_HEIGHT,
             };
         }
 

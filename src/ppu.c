@@ -1,4 +1,5 @@
 #include "nes/ppu.h"
+#include "nes/log.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -203,7 +204,52 @@ static void ppu__inc_vert(Ppu* ppu) {
     }
 }
 
-static void ppu__scanline(Ppu* ppu, b8 pre_render) {
+static void ppu__shifter_push8(Ppu* ppu) {
+    // Shift left
+    memcpy(ppu->shifter, ppu->shifter+8, 8*sizeof(*ppu->shifter));
+    ppu->_tmp += 8;
+
+    u8 pattern_plane0 = ppu->pattern_bus_low;
+    u8 pattern_plane1 = ppu->pattern_bus_high;
+    u8 coarse_x = get_bits(ppu->v, 0, 4);
+    u8 coarse_y = get_bits(ppu->v, 5, 9);
+    u8 quadrant_x = (coarse_x / 2) & 0x1;
+    u8 quadrant_y = (coarse_y / 2) & 0x1;
+
+    // yx yx yx yx
+    // 11 10 01 00
+    // BR BL TR TL
+    u8 attribute = (ppu->at_bus >> 2*(quadrant_x | quadrant_y*2)) & 0x3;
+    u8 palette = attribute;
+
+    for (u8 dx = 0; dx < 8; dx++) {
+        u8 palette_entry = get_bit(pattern_plane0, 7-dx) | (get_bit(pattern_plane1, 7-dx) << 1);
+        u8 palette_index = palette*4 + palette_entry;
+        assert(palette_index <= 0xF);
+
+        u8 color = *ppu_get_color_ptr(ppu, palette_index);
+        if (palette_entry == 0) {
+            color = *ppu_get_bg_color_ptr(ppu);
+        }
+
+        // NOTE: Decode here because if we just store indices into the palette
+        // index color emph and grayscale won't work.
+        ppu->shifter[8+dx] = ppu_decode_color(ppu, color);
+    }
+}
+
+static Color ppu__shifter_pull(Ppu* ppu) {
+    // log_debug("%ld", ppu->_tmp);
+    ppu->_tmp--;
+    Color result = ppu->shifter[ppu->x];
+    // Shift left
+    memmove(ppu->shifter, ppu->shifter+1, 15*sizeof(*ppu->shifter));
+    ppu->shifter[15] = (Color) {255, 0, 255};
+    // assert(!(result.r == 255 && result.g == 0 && result.b == 255));
+    return result;
+}
+
+static void ppu__scanline(Ppu* ppu) {
     // Idle cycle
     if (ppu->dot == 0) {
     } else if (ppu->dot >= 1 && ppu->dot <= 256) {
@@ -244,40 +290,8 @@ static void ppu__scanline(Ppu* ppu, b8 pre_render) {
             *buses[t / 2] = ppu->bus.read(&ppu->bus, ppu->address_bus);
         }
 
-        if (!pre_render && t == 7) {
-            u8 pattern_plane0 = ppu->pattern_bus_low;
-            u8 pattern_plane1 = ppu->pattern_bus_high;
-            for (i32 dx = 0; dx < 8; dx++) {
-                i32 x = ppu->dot-8 + dx;
-                i32 y = ppu->scanline;
-                u32 pixel_idx = (LEFT_BORDER_WIDTH + x) + y*OUTPUT_WIDTH;
-
-                u8 coarse_x = get_bits(ppu->v, 0, 4);
-                u8 coarse_y = get_bits(ppu->v, 5, 9);
-                u8 quadrant_x = (coarse_x / 2) & 0x1;
-                u8 quadrant_y = (coarse_y / 2) & 0x1;
-
-                // yx yx yx yx
-                // 11 10 01 00
-                // BR BL TR TL
-                u8 attribute = (ppu->at_bus >> 2*(quadrant_x + quadrant_y*2)) & 0x3;
-
-                u8 palette = attribute;
-                u8 palette_entry = get_bit(pattern_plane0, 7-dx) | (get_bit(pattern_plane1, 7-dx) << 1);
-                u8 palette_index = palette*4 + palette_entry;
-                assert(palette_index <= 0xF);
-                u8 color = *ppu_get_color_ptr(ppu, palette_index);
-
-                // TODO: Replace this immediate pixel rendering into a shift
-                // register based version, more closely following how the
-                // original NES PPU works.
-                if (palette_entry == 0) {
-                    ppu->pixels[pixel_idx] = *ppu_get_bg_color_ptr(ppu);
-                } else {
-                    ppu->pixels[pixel_idx] = color;
-                }
-            }
-
+        if (t == 7) {
+            ppu__shifter_push8(ppu);
             ppu__inc_hori(ppu);
         }
 
@@ -306,11 +320,11 @@ static void ppu__background_step(Ppu* ppu) {
             // Copy nametable-Y + fine-Y
             ppu->v = copy_bits(ppu->v, ppu->t, 0xB, 0xE);
         }
-        ppu__scanline(ppu, true);
+        ppu__scanline(ppu);
     }
     // Visible lines
     else if (ppu->scanline >= 0 && ppu->scanline < 240) {
-        ppu__scanline(ppu, false);
+        ppu__scanline(ppu);
     }
     // Post render line (idle)
     else if (ppu->scanline == 240) {}
@@ -322,7 +336,9 @@ static inline b8 ppu__rendering_disabled(const Ppu* ppu) {
     return !ppu->mask.background && !ppu->mask.sprite;
 }
 
-void ppu_step(Ppu* ppu) {
+PpuDot ppu_step(Ppu* ppu) {
+    PpuDot result = {0};
+
     if (ppu->dot > 340) {
         ppu->dot = 0;
         ppu->scanline++;
@@ -350,23 +366,32 @@ void ppu_step(Ppu* ppu) {
         ppu__background_step(ppu);
         // ppu__sprite_step(ppu);
 
-        // Output pixels every 8 dots on visible scanlines
+        if (ppu->scanline >= 0 &&
+                ppu->scanline < 240 &&
+                ppu->dot >= 1 && ppu->dot <= 256) {
+            result = (PpuDot) {
+                .visible = true,
+                .color = ppu__shifter_pull(ppu),
+                .x = ppu->dot-1,
+                .y = ppu->scanline,
+            };
+        }
     } else {
-        // TODO: Figure out how to properly output pixels when rendering is
-        // disabled.
-        if (ppu->scanline >= 0 && ppu->scanline < 240 &&
-                ppu->dot >= 1 && ppu->dot <= 256 &&
-                ((ppu->dot-1) & 0x7) == 0) {
-            for (i32 dx = 0; dx < 8; dx++) {
-                i32 x = ppu->dot-8 + dx;
-                i32 y = ppu->scanline;
-                u32 pixel_idx = (LEFT_BORDER_WIDTH + x) + y*OUTPUT_WIDTH;
-                ppu->pixels[pixel_idx] = *ppu_get_bg_color_ptr(ppu);
-            }
+        if (ppu->scanline >= 0 &&
+                ppu->scanline < 240 &&
+                ppu->dot >= 1 && ppu->dot <= 256) {
+            result = (PpuDot) {
+                .visible = true,
+                .color = ppu_decode_color(ppu, *ppu_get_bg_color_ptr(ppu)),
+                .x = ppu->dot-1,
+                .y = ppu->scanline,
+            };
         }
     }
 
     ppu->dot++;
+
+    return result;
 }
 
 void ppu_load_palette(Ppu* ppu, const u8* palette, u32 palette_size) {
@@ -444,6 +469,7 @@ Color ppu_decode_color(const Ppu* ppu, u8 color) {
 }
 
 u8* ppu_get_color_ptr(Ppu* ppu, u8 index) {
+    assert(index < 0x20);
     // Sprite color 0 mirrors background color 0 in every palette
     b8 is_sprite = (index & 0x10) != 0;
     if (is_sprite && (index & 0x3) == 0) {
@@ -509,22 +535,6 @@ void ppu_oam_data_write(Ppu* ppu, u8 value) {
     (void) ppu;
     (void) value;
     UNIMPLEMENTED();
-}
-
-void ppu__debug_fill_pixels(Ppu* ppu, i8 color_index) {
-    assert(color_index < 64);
-    for (i32 y = 0; y < OUTPUT_HEIGHT; y++) {
-        for (i32 x = 0; x < OUTPUT_WIDTH; x++) {
-            i32 idx = x+y*OUTPUT_WIDTH;
-            if (color_index == -1) {
-                u8 chroma = (x/4) & 0xF;
-                u8 luma = (y/4) & 0x3;
-                ppu->pixels[idx] = chroma | (luma << 4);
-            } else {
-                ppu->pixels[idx] = color_index;
-            }
-        }
-    }
 }
 
 void ppu_scroll(Ppu* ppu, u8 value) {
