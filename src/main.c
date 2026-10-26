@@ -2,6 +2,7 @@
 
 #include "nes/cpu.h"
 #include "nes/ppu.h"
+#include "nes/dma.h"
 #include "nes/rom.h"
 #include "nes/opcode_table.h"
 #include "nes/log.h"
@@ -27,6 +28,7 @@ struct Machine {
     NesRom rom;
     Cpu cpu;
     Ppu ppu;
+    OamDma oam_dma;
 };
 
 u8* mem_cpu_helper(Machine* machine, u16 address) {
@@ -100,7 +102,9 @@ u8 mem_cpu_read(MemoryBus* bus, u16 address) {
         value = *memory;
     }
 
-    // printf("CPU: READ(t%d): $%04X, %d ($%02X)\n", machine->cpu.t, address, value, value);
+    // if (cpu_is_halted(&machine->cpu)) {
+    //     log_info("CPU: READ(t%d): $%04X, %d ($%02X)", machine->cpu.t, address, value, value);
+    // }
 
     if (memory == &dummy) {
         abort();
@@ -141,6 +145,9 @@ void mem_cpu_write(MemoryBus* bus, u16 address, u8 value) {
                 ppu_data_write(ppu, value);
                 break;
         }
+    } else if (address == 0x4014) {
+        oam_dma_signal(&machine->oam_dma, value);
+        // ppu_oam_dma(&machine->ppu, value);
     } else {
         u8* memory = mem_cpu_helper(machine, address);
         *memory = value;
@@ -377,6 +384,7 @@ i32 main(void) {
         while (clock_timer >= 1.0e9 / clock_hz) {
             if (tick % 12 == 0) {
                 cpu_step(cpu);
+                oam_dma_step(&machine.oam_dma, cpu, ppu);
             }
 
             if (tick % 4 == 0) {
