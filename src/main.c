@@ -274,8 +274,8 @@ i32 main(void) {
     //
     Machine machine = {
         // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
-        .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
+        .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/color_test.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/full_nes_palette.nes"),
     };

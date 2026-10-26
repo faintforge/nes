@@ -292,13 +292,61 @@ static void ppu__scanline(Ppu* ppu) {
         if (ppu->dot == 256) {
             ppu__inc_vert(ppu);
         }
-    } else if (ppu->dot == 257) {
-        // https://www.nesdev.org/wiki/PPU_scrolling#At_dot_257_of_each_scanline
+    } else if (ppu->dot >= 257 && ppu->dot <= 320) {
+        if (ppu->dot == 257) {
+            // https://www.nesdev.org/wiki/PPU_scrolling#At_dot_257_of_each_scanline
 
-        // Copy coarse-X
-        ppu->v = copy_bits(ppu->v, ppu->t, 0x0, 0x4);
-        // Copy nametable-X
-        ppu->v = copy_bits(ppu->v, ppu->t, 0xA, 0xA);
+            // Copy coarse-X
+            ppu->v = copy_bits(ppu->v, ppu->t, 0x0, 0x4);
+            // Copy nametable-X
+            ppu->v = copy_bits(ppu->v, ppu->t, 0xA, 0xA);
+        }
+
+        // TODO: Fetch next scanline sprites
+    } else if (ppu->dot >= 321 && ppu->dot <= 336) {
+        ppu__shifter_pull(ppu);
+
+        // 1. Fetch nametable
+        // 2. Fetch attribute table
+        // 3. Pattern table tile low
+        // 4. Pattern table tile high
+
+        // Pattern address
+        // https://www.nesdev.org/wiki/PPU_pattern_tables
+        // 0HNNNN NNNNPyyy
+        // Fine-Y
+        u16 pattern_addr_plane0 = get_bits(ppu->v, 12, 14);
+        pattern_addr_plane0 |= ppu->nt_bus << 4;
+        pattern_addr_plane0 |= ppu->background_pattern_address;
+
+        u8 t = (ppu->dot - 321) & 0x7;
+        if ((t & 1) == 0) {
+            u16 v = ppu->v;
+            u16 addresses[4] = {
+                // NT
+                0x2000 | (v & 0x0FFF),
+                // AT
+                0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07),
+                // Pattern low
+                pattern_addr_plane0,
+                // Pattern high
+                pattern_addr_plane0 ^ 0x8, // Filp plane bit (bit 3)
+            };
+            ppu->address_bus = addresses[t >> 1];
+        } else {
+            u8* buses[4] = {
+                &ppu->nt_bus,
+                &ppu->at_bus,
+                &ppu->pattern_bus_low,
+                &ppu->pattern_bus_high,
+            };
+            *buses[t / 2] = ppu->bus.read(&ppu->bus, ppu->address_bus);
+        }
+
+        if (t == 7) {
+            ppu__shifter_push8(ppu);
+            ppu__inc_hori(ppu);
+        }
     }
     // TODO: Fetch tiles for next scanline on the next dots.
 }
