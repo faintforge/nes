@@ -233,7 +233,7 @@ static void ppu__shifter_push8(Ppu* ppu) {
 }
 
 static Color ppu__shifter_pull(Ppu* ppu) {
-    ppu->last_shifted = ppu_decode_color(ppu, ppu->shifter[ppu->x]);
+    ppu->last_shifted = ppu_decode_color(ppu, ppu->shifter[ppu->fine_x]);
     // Shift left
     memmove(ppu->shifter, ppu->shifter+1, 15*sizeof(*ppu->shifter));
     ppu->shifter[15] = 0;
@@ -356,7 +356,6 @@ PpuDot ppu_step(Ppu* ppu) {
         ppu->dot = 0;
         ppu->scanline++;
         if (ppu->scanline > 260) {
-            // ppu->v += 32;
             ppu->scanline = -1;
         }
     }
@@ -540,14 +539,14 @@ void ppu_oam_address(Ppu* ppu, u8 value) {
 }
 
 u8 ppu_oam_data_read(Ppu* ppu) {
-    (void) ppu;
-    UNIMPLEMENTED();
+    u8* oam_memory = (u8*) ppu->oam;
+    return oam_memory[ppu->oam_addr];
 }
 
 void ppu_oam_data_write(Ppu* ppu, u8 value) {
-    (void) ppu;
-    (void) value;
-    UNIMPLEMENTED();
+    u8* oam_memory = (u8*) ppu->oam;
+    oam_memory[ppu->oam_addr] = value;
+    ppu->oam_addr++;
 }
 
 void ppu_scroll(Ppu* ppu, u8 value) {
@@ -558,7 +557,7 @@ void ppu_scroll(Ppu* ppu, u8 value) {
         ppu->t &= ~0x1F;
         ppu->t |= coarse;
 
-        ppu->x = fine;
+        ppu->fine_x = fine;
     } else {
         // Bitmask 01110011 11100000 = 0x73E0
         ppu->t &= ~0x73E0;
@@ -616,7 +615,7 @@ void ppu_data_write(Ppu* ppu, u8 value) {
     ppu->v &= 0x7FFF;
 }
 
-void ppu_oam_mdma(Ppu* ppu, u8 value) {
+void ppu_oam_dma(Ppu* ppu, u8 value) {
     (void) ppu;
     (void) value;
     UNIMPLEMENTED();

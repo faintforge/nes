@@ -35,6 +35,15 @@ struct PpuMask {
     b8 emph_blue : 1;
 };
 
+// https://www.nesdev.org/wiki/PPU_OAM#OAM_(Sprite)_Data
+typedef struct SpriteOam SpriteOam;
+struct SpriteOam {
+    u8 y;
+    u8 tile_index;
+    u8 attrib;
+    u8 x;
+};
+
 typedef struct Ppu Ppu;
 struct Ppu {
     MemoryBus bus;
@@ -49,10 +58,12 @@ struct Ppu {
 
     u16 v;
     u16 t;
-    u8 x;
+    u8 fine_x;
     u8 w;
 
     PpuMask mask;
+
+    SpriteOam oam[64];
 
     // [Reference](https://www.nesdev.org/wiki/PPU_registers)
     VramIncrement vram_increment;
@@ -115,6 +126,6 @@ extern void ppu_scroll(Ppu* ppu, u8 value);
 extern void ppu_address(Ppu* ppu, u8 value);
 extern u8   ppu_data_read(Ppu* ppu);
 extern void ppu_data_write(Ppu* ppu, u8 value);
-extern void ppu_oam_mdma(Ppu* ppu, u8 value);
+extern void ppu_oam_dma(Ppu* ppu, u8 value);
 
 #endif // PPU_H
