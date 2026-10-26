@@ -241,54 +241,57 @@ static Color ppu__shifter_pull(Ppu* ppu) {
     return ppu->last_shifted;
 }
 
+static void ppu__fetch_tile_data(Ppu* ppu, u32 starting_dot) {
+    ppu__shifter_pull(ppu);
+
+    // 1. Fetch nametable
+    // 2. Fetch attribute table
+    // 3. Pattern table tile low
+    // 4. Pattern table tile high
+
+    // Pattern address
+    // https://www.nesdev.org/wiki/PPU_pattern_tables
+    // 0HNNNN NNNNPyyy
+    // Fine-Y
+    u16 pattern_addr_plane0 = get_bits(ppu->v, 12, 14);
+    pattern_addr_plane0 |= ppu->nt_bus << 4;
+    pattern_addr_plane0 |= ppu->background_pattern_address;
+
+    u8 t = (ppu->dot - starting_dot) & 0x7;
+    if ((t & 1) == 0) {
+        u16 v = ppu->v;
+        u16 addresses[4] = {
+            // NT
+            0x2000 | (v & 0x0FFF),
+            // AT
+            0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07),
+            // Pattern low
+            pattern_addr_plane0,
+            // Pattern high
+            pattern_addr_plane0 ^ 0x8, // Filp plane bit (bit 3)
+        };
+        ppu->address_bus = addresses[t >> 1];
+    } else {
+        u8* buses[4] = {
+            &ppu->nt_bus,
+            &ppu->at_bus,
+            &ppu->pattern_bus_low,
+            &ppu->pattern_bus_high,
+        };
+        *buses[t / 2] = ppu->bus.read(&ppu->bus, ppu->address_bus);
+    }
+
+    if (t == 7) {
+        ppu__shifter_push8(ppu);
+        ppu__inc_hori(ppu);
+    }
+}
+
 static void ppu__scanline(Ppu* ppu) {
     // Idle cycle
     if (ppu->dot == 0) {
     } else if (ppu->dot >= 1 && ppu->dot <= 256) {
-        ppu__shifter_pull(ppu);
-
-        // 1. Fetch nametable
-        // 2. Fetch attribute table
-        // 3. Pattern table tile low
-        // 4. Pattern table tile high
-
-        // Pattern address
-        // https://www.nesdev.org/wiki/PPU_pattern_tables
-        // 0HNNNN NNNNPyyy
-        // Fine-Y
-        u16 pattern_addr_plane0 = get_bits(ppu->v, 12, 14);
-        pattern_addr_plane0 |= ppu->nt_bus << 4;
-        pattern_addr_plane0 |= ppu->background_pattern_address;
-
-        u8 t = (ppu->dot - 1) & 0x7;
-        if ((t & 1) == 0) {
-            u16 v = ppu->v;
-            u16 addresses[4] = {
-                // NT
-                0x2000 | (v & 0x0FFF),
-                // AT
-                0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07),
-                // Pattern low
-                pattern_addr_plane0,
-                // Pattern high
-                pattern_addr_plane0 ^ 0x8, // Filp plane bit (bit 3)
-            };
-            ppu->address_bus = addresses[t >> 1];
-        } else {
-            u8* buses[4] = {
-                &ppu->nt_bus,
-                &ppu->at_bus,
-                &ppu->pattern_bus_low,
-                &ppu->pattern_bus_high,
-            };
-            *buses[t / 2] = ppu->bus.read(&ppu->bus, ppu->address_bus);
-        }
-
-        if (t == 7) {
-            ppu__shifter_push8(ppu);
-            ppu__inc_hori(ppu);
-        }
-
+        ppu__fetch_tile_data(ppu, 1);
         if (ppu->dot == 256) {
             ppu__inc_vert(ppu);
         }
@@ -304,48 +307,14 @@ static void ppu__scanline(Ppu* ppu) {
 
         // TODO: Fetch next scanline sprites
     } else if (ppu->dot >= 321 && ppu->dot <= 336) {
-        ppu__shifter_pull(ppu);
-
-        // 1. Fetch nametable
-        // 2. Fetch attribute table
-        // 3. Pattern table tile low
-        // 4. Pattern table tile high
-
-        // Pattern address
-        // https://www.nesdev.org/wiki/PPU_pattern_tables
-        // 0HNNNN NNNNPyyy
-        // Fine-Y
-        u16 pattern_addr_plane0 = get_bits(ppu->v, 12, 14);
-        pattern_addr_plane0 |= ppu->nt_bus << 4;
-        pattern_addr_plane0 |= ppu->background_pattern_address;
-
-        u8 t = (ppu->dot - 321) & 0x7;
-        if ((t & 1) == 0) {
-            u16 v = ppu->v;
-            u16 addresses[4] = {
-                // NT
-                0x2000 | (v & 0x0FFF),
-                // AT
-                0x23C0 | (v & 0x0C00) | ((v >> 4) & 0x38) | ((v >> 2) & 0x07),
-                // Pattern low
-                pattern_addr_plane0,
-                // Pattern high
-                pattern_addr_plane0 ^ 0x8, // Filp plane bit (bit 3)
-            };
-            ppu->address_bus = addresses[t >> 1];
+        ppu__fetch_tile_data(ppu, 321);
+    } else if (ppu->dot >= 337 && ppu->dot <= 340) {
+        b8 odd = ((ppu->dot - 337) & 0x1) == 0;
+        if (odd) {
+            // Load nametable address onto address bus
+            ppu->address_bus = 0x2000 | (ppu->v & 0x0FFF);
         } else {
-            u8* buses[4] = {
-                &ppu->nt_bus,
-                &ppu->at_bus,
-                &ppu->pattern_bus_low,
-                &ppu->pattern_bus_high,
-            };
-            *buses[t / 2] = ppu->bus.read(&ppu->bus, ppu->address_bus);
-        }
-
-        if (t == 7) {
-            ppu__shifter_push8(ppu);
-            ppu__inc_hori(ppu);
+            ppu->bus.read(&ppu->bus, ppu->address_bus);
         }
     }
     // TODO: Fetch tiles for next scanline on the next dots.
@@ -364,6 +333,7 @@ static void ppu__background_step(Ppu* ppu) {
             ppu->v = copy_bits(ppu->v, ppu->t, 0xB, 0xE);
         }
         ppu__scanline(ppu);
+        // TODO: Skip last dot on odd frames
     }
     // Visible lines
     else if (ppu->scanline >= 0 && ppu->scanline < 240) {
