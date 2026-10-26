@@ -939,6 +939,12 @@ void cpu_step(Cpu* cpu) {
             UNREACHABLE();
     }
 
+    // Always halt after the read has occured. Very important for reads with
+    // side effects (MMIO).
+    if (cpu_is_halted(cpu)) {
+        return;
+    }
+
     // TODO: Change how NMI and IRQ:s work. They need to be latched and should
     // not repond to another NMI during their execution.
     if (cpu->nmi == 0) {
@@ -1204,4 +1210,8 @@ void cpu_step(Cpu* cpu) {
     assert(cpu_get_status_flag(cpu, CPU_FLAG_BREAK) == 0);
 
     cpu->cycle++;
+}
+
+b8 cpu_is_halted(const Cpu* cpu) {
+    return cpu->rdy == 1 && cpu->bus_mode == READ;
 }

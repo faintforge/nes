@@ -47,6 +47,7 @@ struct Cpu {
     u8 nmi;
     u8 reset;
     u8 irq;
+    u8 rdy;
 
     u8 last_nmi;
 
@@ -76,5 +77,6 @@ extern Cpu cpu_init(MemoryBus bus);
 extern void cpu_reset(Cpu* cpu);
 
 extern void cpu_step(Cpu* cpu);
+extern b8 cpu_is_halted(const Cpu* cpu);
 
 #endif // CPU_H
