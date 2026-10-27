@@ -1,5 +1,4 @@
 #include "nes/ppu.h"
-#include "nes/log.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -148,6 +147,7 @@ Ppu ppu_init(MemoryBus bus) {
         .bus = bus,
         .scanline = -1,
         .ppu_address_delay = -1,
+        .sprite_eval_state = 1,
     };
 
     memcpy(&ppu.palette, DEFAULT_PALETTE, sizeof(DEFAULT_PALETTE));
@@ -353,6 +353,67 @@ static b8 is_sprite_on_scanline(const Ppu* ppu, SpriteOam sprite, i32 scanline) 
     return scanline >= min && scanline < max;
 }
 
+static void ppu__sprite_eval(Ppu* ppu) {
+    b8 is_odd = (ppu->dot & 0x1) == 1;
+    // Odd: Read cycle
+    if (is_odd) {
+        ppu->oam_data_latch = ppu->primary_oam[ppu->primary_oam_index][ppu->oam_copy_idx];
+    }
+    // Even: Write to secondary
+    else if (ppu->oam_can_write) {
+        ppu->secondary_oam[ppu->secondary_oam_index][ppu->oam_copy_idx] = ppu->oam_data_latch;
+    }
+
+    switch (ppu->sprite_eval_state) {
+        case 1: {
+            // Only check if the sprite is on the next scanline on read cycles
+            // because that's when the y value was fetched.
+            if (is_odd && !ppu->oam_copying_sprite) {
+                i16 y = ppu->oam_data_latch;
+                i16 next_scanline = ppu->scanline + 1;
+                u8 sprite_height = ppu->sprite_size == SPRITE_SIZE_8X8 ? 8 : 16;
+                if (next_scanline >= y && next_scanline < y+sprite_height) {
+                    ppu->oam_copying_sprite = true;
+                } else {
+                    ppu->sprite_eval_state = 2;
+                }
+            }
+            // Only increment on even (write) cycles because then we ensure the
+            // previous read was written to secondary OAM.
+            else if (!is_odd && ppu->oam_copying_sprite) {
+                ppu->oam_copy_idx++;
+                if (ppu->oam_copy_idx == 4) {
+                    ppu->secondary_oam_index++;
+                    ppu->oam_copy_idx = 0;
+                    ppu->sprite_eval_state = 2;
+                    ppu->oam_copying_sprite = false;
+                }
+            }
+        } break;
+        case 2:
+            ppu->primary_oam_index++;
+            // 2a
+            if (ppu->primary_oam_index >= 64) {
+                ppu->sprite_eval_state = 4;
+                break;
+            }
+
+            // 2b
+            if (ppu->secondary_oam_index < 8) {
+                ppu->sprite_eval_state = 1;
+            } else {
+                ppu->oam_can_write = false;
+            }
+            break;
+        case 3:
+            break;
+        case 4:
+            break;
+        default:
+            UNREACHABLE();
+    }
+}
+
 static void ppu__sprite_step(Ppu* ppu) {
     assert(ppu->sprite_size == SPRITE_SIZE_8X8);
 
@@ -371,59 +432,19 @@ static void ppu__sprite_step(Ppu* ppu) {
             secondary_oam_memory[index] = 0xFF;
         }
 
-        ppu->secondary_oam_index = 0;
         ppu->primary_oam_index = 0;
+        ppu->secondary_oam_index = 0;
+        ppu->oam_can_write = true;
+        ppu->sprite_eval_state = 1;
+        assert(ppu->oam_copy_idx == 0);
     } else if (ppu->dot >= 65 && ppu->dot <= 256) {
-        // TODO: Temporary solution
-        if (ppu->primary_oam_index >= 32 || ppu->secondary_oam_index >= 8) {
-            return;
-        }
-
-        b8 is_odd = (ppu->dot & 0x1) == 1;
-        // Odd: Read from primary
-        if (is_odd) {
-            // Copying sprite
-            if (ppu->copy_index == 0) {
-                ppu->oam_data_latch = ppu->primary_oam[ppu->primary_oam_index];
-                ppu->primary_oam_index++;
-                // Don't know if this copy is actually necessary but better safe
-                // than sorry.
-                ppu->secondary_oam[ppu->secondary_oam_index].y = ppu->oam_data_latch.y;
-            }
-        }
-        // Even: Write to secondary
-        else {
-            // A read should always have happened before this
-            assert(ppu->primary_oam_index > 0);
-
-            // Check if we're on the next scanline
-            if (ppu->copy_index == 0 && is_sprite_on_scanline(ppu, ppu->oam_data_latch, ppu->scanline+1)) {
-                // log_debug("Copy primary %d into secondary %d", ppu->primary_oam_index-1, ppu->secondary_oam_index);
-                ppu->copy_index = 1;
-            } else if (ppu->copy_index > 0) {
-                // I'm truly sorry to anyone reading this.
-                u8 byte = ((u8*) &ppu->oam_data_latch)[ppu->copy_index];
-                u8* secondary_oam_mem = (u8*) &ppu->secondary_oam[ppu->secondary_oam_index];
-                secondary_oam_mem[ppu->copy_index] = byte;
-                ppu->copy_index++;
-                if (ppu->copy_index == 4) {
-                    // log_debug("%d:%d: %d, %d", ppu->scanline, ppu->dot, ppu->primary_oam_index-1, ppu->secondary_oam_index);
-                    // log_debug("%d, %d", ppu->oam_data_latch.y, ppu->secondary_oam[ppu->secondary_oam_index].y);
-                    ppu->copy_index = 0;
-                    ppu->secondary_oam_index++;
-                }
-            }
-        }
+        ppu__sprite_eval(ppu);
     } else if (ppu->dot >= 257 && ppu->dot <= 320) {
         if (ppu->dot == 257) {
             memcpy(ppu->to_render_oam,
                     ppu->secondary_oam,
                     ppu->secondary_oam_index*sizeof(SpriteOam));
             ppu->to_render_count = ppu->secondary_oam_index;
-
-            ppu->secondary_oam_index = 0;
-            ppu->primary_oam_index = 0;
-            assert(ppu->copy_index == 0);
         }
     }
 }

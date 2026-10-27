@@ -63,18 +63,21 @@ struct Ppu {
 
     PpuMask mask;
 
+    u8 sprite_eval_state;
     u8 oam_addr;
     // Sprite eval
-    SpriteOam primary_oam[64];
-    SpriteOam secondary_oam[8];
-    SpriteOam oam_data_latch;
+    u8 primary_oam[64][4];
+    u8 secondary_oam[8][4];
+    u8 oam_data_latch;
+    b8 oam_can_write;
+    b8 oam_copying_sprite;
     // Index counters for sprite eval
     u8 primary_oam_index;
     u8 secondary_oam_index;
-    i8 copy_index;
+    i8 oam_copy_idx;
 
     SpriteOam to_render_oam[8];
-    u32 to_render_count;
+    u8 to_render_count;
 
     // [Reference](https://www.nesdev.org/wiki/PPU_registers)
     VramIncrement vram_increment;
