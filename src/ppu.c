@@ -205,8 +205,15 @@ static void ppu__inc_vert(Ppu* ppu) {
 }
 
 static void ppu__shifter_push8(Ppu* ppu) {
-    u8 pattern_plane0 = ppu->pattern_bus_low;
-    u8 pattern_plane1 = ppu->pattern_bus_high;
+    ppu->shifter_plane_low = clear_bits(ppu->shifter_plane_low, 8, 15);
+    ppu->shifter_plane_high = clear_bits(ppu->shifter_plane_high, 8, 15);
+    for (u32 i = 0; i < 8; i++) {
+        u16 low = get_bit(ppu->pattern_bus_low, 7-i);
+        u16 high = get_bit(ppu->pattern_bus_high, 7-i);
+        ppu->shifter_plane_low |= low << (8+i);
+        ppu->shifter_plane_high |= high << (8+i);
+    }
+
     u8 coarse_x = get_bits(ppu->v, 0, 4);
     u8 coarse_y = get_bits(ppu->v, 5, 9);
     u8 quadrant_x = (coarse_x / 2) & 0x1;
@@ -215,32 +222,24 @@ static void ppu__shifter_push8(Ppu* ppu) {
     // yx yx yx yx
     // 11 10 01 00
     // BR BL TR TL
-    u8 attribute = (ppu->at_bus >> 2*(quadrant_x | quadrant_y*2)) & 0x3;
-    u8 palette = attribute;
+    u8 palette = (ppu->at_bus >> 2*(quadrant_x | quadrant_y*2)) & 0x3;
 
-    for (u8 dx = 0; dx < 8; dx++) {
-        u8 palette_entry = get_bit(pattern_plane0, 7-dx) | (get_bit(pattern_plane1, 7-dx) << 1);
-        u8 palette_index = palette*4 + palette_entry;
-        assert(palette_index <= 0xF);
-
-        u8 color = *ppu_get_color_ptr(ppu, palette_index);
-        if (palette_entry == 0) {
-            color = *ppu_get_bg_color_ptr(ppu);
-        }
-
-        ppu->shifter[8+dx] = color;
-        ppu->shifter_palette_entries[8+dx] = palette_entry;
-    }
+    ppu->shifter_palette_low = clear_bits(ppu->shifter_palette_low, 8, 15);
+    ppu->shifter_palette_high = clear_bits(ppu->shifter_palette_high, 8, 15);
+    ppu->shifter_palette_low |= 0xFF00 * get_bit(palette, 0);
+    ppu->shifter_palette_high |= 0xFF00 * get_bit(palette, 1);
 }
 
 static void ppu__shifter_pull(Ppu* ppu) {
-    ppu->last_shifted = ppu->shifter[ppu->fine_x];
-    ppu->last_shifted_palette_entry = ppu->shifter_palette_entries[ppu->fine_x];
-    // Shift left
-    memmove(ppu->shifter, ppu->shifter+1, 15*sizeof(*ppu->shifter));
-    memmove(ppu->shifter_palette_entries, ppu->shifter_palette_entries+1, 15*sizeof(*ppu->shifter_palette_entries));
-    ppu->shifter[15] = 0;
-    ppu->shifter_palette_entries[15] = 0;
+    ppu->last_shifted.plane_low = ppu->shifter_plane_low & 0x1;
+    ppu->last_shifted.plane_high = ppu->shifter_plane_high & 0x1;
+    ppu->last_shifted.palette_low = ppu->shifter_palette_low & 0x1;
+    ppu->last_shifted.palette_high = ppu->shifter_palette_high & 0x1;
+
+    ppu->shifter_plane_low >>= 1;
+    ppu->shifter_plane_high >>= 1;
+    ppu->shifter_palette_low >>= 1;
+    ppu->shifter_palette_high >>= 1;
 }
 
 static void ppu__fetch_tile_data(Ppu* ppu, u32 starting_dot) {
@@ -334,17 +333,9 @@ static void ppu__background_step(Ppu* ppu) {
             // Copy nametable-Y + fine-Y
             ppu->v = copy_bits(ppu->v, ppu->t, 0xB, 0xE);
         }
-        ppu__scanline(ppu);
         // TODO: Skip last dot on odd frames
     }
-    // Visible lines
-    else if (ppu->scanline >= 0 && ppu->scanline < 240) {
-        ppu__scanline(ppu);
-    }
-    // Post render line (idle)
-    else if (ppu->scanline == 240) {}
-    // V-Blank lines 
-    else if (ppu->scanline >= 241) {}
+    ppu__scanline(ppu);
 }
 
 static b8 is_sprite_on_scanline(const Ppu* ppu, SpriteOam sprite, i32 scanline) {
@@ -417,11 +408,6 @@ static void ppu__sprite_eval(Ppu* ppu) {
 static void ppu__sprite_step(Ppu* ppu) {
     assert(ppu->sprite_size == SPRITE_SIZE_8X8);
 
-    // Not on visible scanline
-    if (!(ppu->scanline >= -1 && ppu->scanline <= 240)) {
-        return;
-    }
-
     // https://www.nesdev.org/wiki/PPU_sprite_evaluation
     if (ppu->dot >= 1 && ppu->dot <= 64) {
         u8 index = ppu->dot-1;
@@ -454,7 +440,8 @@ static inline b8 ppu__rendering_disabled(const Ppu* ppu) {
 }
 
 PpuDot ppu_step(Ppu* ppu) {
-    PpuDot result = {0};
+    // TODO: Factor out a bunch of stuff. This is a mess of a function. And the
+    // Ppu struct should be broken up into smaller components too.
 
     if (ppu->dot > 340) {
         ppu->dot = 0;
@@ -478,91 +465,109 @@ PpuDot ppu_step(Ppu* ppu) {
         ppu->vblank_nmi_signal = ppu->vblank_nmi_enabled;
     }
 
-    if (!ppu__rendering_disabled(ppu)) {
-        ppu__background_step(ppu);
-        ppu__sprite_step(ppu);
+    PpuDot result = {0};
 
-        if (ppu->scanline >= 0 &&
-                ppu->scanline < 240 &&
-                ppu->dot >= 1 && ppu->dot <= 256) {
-            i32 x = ppu->dot-1;
-            u8 sprite_color = {0};
-            u8 sprite_priority = 0;
-            u8 sprite_palette_entry = 0;
-            for (u32 i = 0; i < ppu->to_render_count; i++) {
-                // Reverse index for reverse painters ordering
-                SpriteOam sprite = ppu->to_render_oam[i];
-
-                assert(is_sprite_on_scanline(ppu, sprite, ppu->scanline));
-                // log_debug("(%d, %d): (%d, %d)", x, ppu->scanline, sprite.x, sprite.y);
-                if (x >= sprite.x && x < sprite.x+8) {
-                    u32 sprite_x = x - sprite.x;
-                    i32 sprite_y = ppu->scanline - sprite.y;
-
-                    u16 pattern_addr_base = ppu->sprite_pattern_table_address;
-                    pattern_addr_base |= sprite.tile_index << 4;
-                    pattern_addr_base |= sprite_y;
-
-                    // Flip horizontally
-                    u8 plane_x = get_bit(sprite.attrib, 6) == 0 ? 7-sprite_x : sprite_x;
-
-                    u8 low_plane = ppu->bus.read(&ppu->bus, pattern_addr_base);
-                    u8 high_plane = ppu->bus.read(&ppu->bus, pattern_addr_base^0x8);
-                    sprite_palette_entry = get_bit(low_plane, plane_x) |
-                        (get_bit(high_plane, plane_x) << 1);
-                    sprite_color = sprite_palette_entry + (sprite.attrib & 0x3)*4;
-                    assert(sprite_color <= 0xF);
-                    sprite_color ^= 0x10;
-                    sprite_color = *ppu_get_color_ptr(ppu, sprite_color);
-
-                    sprite_priority = get_bit(sprite.attrib, 5);
-
-                    break;
-                }
+    // Visible lines
+    if (ppu->scanline >= -1 && ppu->scanline < 240) {
+        if (ppu__rendering_disabled(ppu)) {
+            if (ppu->scanline >= 0 &&
+                    ppu->dot >= 1 && ppu->dot <= 256) {
+                result = (PpuDot) {
+                    .visible = true,
+                    .color = ppu_decode_color(ppu, *ppu_get_bg_color_ptr(ppu)),
+                    .x = ppu->dot-1,
+                    .y = ppu->scanline,
+                };
             }
+        } else {
+            ppu__background_step(ppu);
+            ppu__sprite_step(ppu);
 
-            u8 tile_color = ppu->last_shifted;
+            if (ppu->dot >= 1 && ppu->dot <= 256) {
+                // Color selection logic
+                i32 x = ppu->dot-1;
 
-            Color color = {255, 0, 255};
-            b8 tile_opaque = (ppu->last_shifted_palette_entry & 0x3) != 0;
-            b8 sprite_opaque = (sprite_palette_entry & 0x3) != 0;
-            if (!tile_opaque && !sprite_opaque) {
-                color = ppu_decode_color(ppu, *ppu_get_bg_color_ptr(ppu));
-            } else if (!tile_opaque && sprite_opaque) {
-                color = ppu_decode_color(ppu, sprite_color);
-            } else if (tile_opaque && !sprite_opaque) {
-                color = ppu_decode_color(ppu, tile_color);
-            } else {
-                if (sprite_priority == 0) {
-                    // log_debug("Here");
-                    color = ppu_decode_color(ppu, sprite_color);
+                u8 sprite_color_index = 0;
+                u8 sprite_priority = 0;
+                u8 sprite_palette_entry = 0;
+                for (u32 i = 0; i < ppu->to_render_count; i++) {
+                    SpriteOam sprite = ppu->to_render_oam[i];
+                    assert(is_sprite_on_scanline(ppu, sprite, ppu->scanline));
+                    if (x >= sprite.x && x < sprite.x+8) {
+                        u32 sprite_x = x - sprite.x;
+                        i32 sprite_y = ppu->scanline - sprite.y;
+
+                        u16 pattern_addr_base = ppu->sprite_pattern_table_address;
+                        pattern_addr_base |= sprite.tile_index << 4;
+                        pattern_addr_base |= sprite_y;
+
+                        // Flip horizontally
+                        u8 plane_x = get_bit(sprite.attrib, 6) == 0 ? 7-sprite_x : sprite_x;
+
+                        u8 low_plane = ppu->bus.read(&ppu->bus, pattern_addr_base);
+                        u8 high_plane = ppu->bus.read(&ppu->bus, pattern_addr_base^0x8);
+                        sprite_palette_entry = get_bit(low_plane, plane_x) |
+                            (get_bit(high_plane, plane_x) << 1);
+                        sprite_color_index = sprite_palette_entry + (sprite.attrib & 0x3)*4;
+                        assert(sprite_color_index <= 0xF);
+                        sprite_color_index ^= 0x10;
+                        sprite_color_index = *ppu_get_color_ptr(ppu, sprite_color_index);
+
+                        sprite_priority = get_bit(sprite.attrib, 5);
+
+                        break;
+                    }
+                }
+
+                assert(ppu->fine_x == 0);
+                PpuShifterCarry c = ppu->last_shifted;
+                u8 tile_palette_entry = c.plane_low | (c.plane_high << 1);
+                u8 tile_palette = c.palette_low | (c.palette_high << 1);
+                u8 tile_color_index = tile_palette_entry + tile_palette*4;
+                tile_color_index = *ppu_get_color_ptr(ppu, tile_color_index);
+
+                if (!ppu->mask.background) {
+                    tile_palette_entry = 0;
+                }
+                if (!ppu->mask.sprite) {
+                    sprite_palette_entry = 0;
+                }
+
+                Color color = {255, 0, 255};
+                b8 tile_opaque = (tile_palette_entry & 0x3) != 0;
+                b8 sprite_opaque = (sprite_palette_entry & 0x3) != 0;
+
+                if (!tile_opaque && !sprite_opaque) {
+                    color = ppu_decode_color(ppu, *ppu_get_bg_color_ptr(ppu));
+                } else if (!tile_opaque && sprite_opaque) {
+                    color = ppu_decode_color(ppu, sprite_color_index);
+                } else if (tile_opaque && !sprite_opaque) {
+                    color = ppu_decode_color(ppu, tile_color_index);
                 } else {
-                    color = ppu_decode_color(ppu, tile_color);
+                    if (sprite_priority == 0) {
+                        color = ppu_decode_color(ppu, sprite_color_index);
+                    } else {
+                        color = ppu_decode_color(ppu, tile_color_index);
+                    }
+                }
+
+                // Return a valid pixel on visible scanlines after pre-render
+                // line
+                if (ppu->scanline >= 0) {
+                    result = (PpuDot) {
+                        .visible = true,
+                        .color = color,
+                        .x = x,
+                        .y = ppu->scanline,
+                    };
                 }
             }
-
-            result = (PpuDot) {
-                .visible = true,
-                .color = color,
-                .x = x,
-                .y = ppu->scanline,
-            };
-        }
-    } else {
-        if (ppu->scanline >= 0 &&
-                ppu->scanline < 240 &&
-                ppu->dot >= 1 && ppu->dot <= 256) {
-            result = (PpuDot) {
-                .visible = true,
-                .color = ppu_decode_color(ppu, *ppu_get_bg_color_ptr(ppu)),
-                .x = ppu->dot-1,
-                .y = ppu->scanline,
-            };
         }
     }
+    // Idle V-blank lines
+    else {}
 
     ppu->dot++;
-
     return result;
 }
 
@@ -646,7 +651,6 @@ u8* ppu_get_color_ptr(Ppu* ppu, u8 index) {
     b8 is_sprite = (index & 0x10) != 0;
     if (is_sprite && (index & 0x3) == 0) {
         index -= 0x10;
-        // log_debug("Here");
     }
     return &ppu->palette_indices[index];
 }

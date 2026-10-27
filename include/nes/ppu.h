@@ -44,6 +44,14 @@ struct SpriteOam {
     u8 x;
 };
 
+typedef struct PpuShifterCarry PpuShifterCarry;
+struct PpuShifterCarry {
+    u8 plane_low : 1;
+    u8 plane_high : 1;
+    u8 palette_low : 1;
+    u8 palette_high : 1;
+};
+
 typedef struct Ppu Ppu;
 struct Ppu {
     MemoryBus bus;
@@ -99,10 +107,11 @@ struct Ppu {
     u8 pattern_bus_low;
     u8 pattern_bus_high;
 
-    u8 shifter[16];
-    u8 shifter_palette_entries[16];
-    u8 last_shifted;
-    u8 last_shifted_palette_entry;
+    u16 shifter_plane_low;
+    u16 shifter_plane_high;
+    u16 shifter_palette_low;
+    u16 shifter_palette_high;
+    PpuShifterCarry last_shifted;
 
     i16 scanline;
     u16 dot;
