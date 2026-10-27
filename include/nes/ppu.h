@@ -63,7 +63,18 @@ struct Ppu {
 
     PpuMask mask;
 
-    SpriteOam oam[64];
+    u8 oam_addr;
+    // Sprite eval
+    SpriteOam primary_oam[64];
+    SpriteOam secondary_oam[8];
+    SpriteOam oam_data_latch;
+    // Index counters for sprite eval
+    u8 primary_oam_index;
+    u8 secondary_oam_index;
+    i8 copy_index;
+
+    SpriteOam to_render_oam[8];
+    u32 to_render_count;
 
     // [Reference](https://www.nesdev.org/wiki/PPU_registers)
     VramIncrement vram_increment;
@@ -86,9 +97,9 @@ struct Ppu {
     u8 pattern_bus_high;
 
     u8 shifter[16];
-    Color last_shifted;
-
-    u8 oam_addr;
+    u8 shifter_palette_entries[16];
+    u8 last_shifted;
+    u8 last_shifted_palette_entry;
 
     i16 scanline;
     u16 dot;

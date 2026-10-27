@@ -229,16 +229,18 @@ static void ppu__shifter_push8(Ppu* ppu) {
         }
 
         ppu->shifter[8+dx] = color;
+        ppu->shifter_palette_entries[8+dx] = palette_entry;
     }
 }
 
-static Color ppu__shifter_pull(Ppu* ppu) {
-    ppu->last_shifted = ppu_decode_color(ppu, ppu->shifter[ppu->fine_x]);
+static void ppu__shifter_pull(Ppu* ppu) {
+    ppu->last_shifted = ppu->shifter[ppu->fine_x];
+    ppu->last_shifted_palette_entry = ppu->shifter_palette_entries[ppu->fine_x];
     // Shift left
     memmove(ppu->shifter, ppu->shifter+1, 15*sizeof(*ppu->shifter));
+    memmove(ppu->shifter_palette_entries, ppu->shifter_palette_entries+1, 15*sizeof(*ppu->shifter_palette_entries));
     ppu->shifter[15] = 0;
-    // assert(!(result.r == 255 && result.g == 0 && result.b == 255));
-    return ppu->last_shifted;
+    ppu->shifter_palette_entries[15] = 0;
 }
 
 static void ppu__fetch_tile_data(Ppu* ppu, u32 starting_dot) {
@@ -345,6 +347,87 @@ static void ppu__background_step(Ppu* ppu) {
     else if (ppu->scanline >= 241) {}
 }
 
+static b8 is_sprite_on_scanline(const Ppu* ppu, SpriteOam sprite, i32 scanline) {
+    i32 min = (i32) sprite.y;
+    i32 max = (i32) sprite.y + (ppu->sprite_size == SPRITE_SIZE_8X16 ? 16 : 8);
+    return scanline >= min && scanline < max;
+}
+
+static void ppu__sprite_step(Ppu* ppu) {
+    assert(ppu->sprite_size == SPRITE_SIZE_8X8);
+
+    // Not on visible scanline
+    if (!(ppu->scanline >= -1 && ppu->scanline <= 240)) {
+        return;
+    }
+
+    // https://www.nesdev.org/wiki/PPU_sprite_evaluation
+    if (ppu->dot >= 1 && ppu->dot <= 64) {
+        u8 index = ppu->dot-1;
+        // Write on odd dots
+        if ((index & 0x1) == 1) {
+            index /= 2;
+            u8* secondary_oam_memory = (u8*) &ppu->secondary_oam;
+            secondary_oam_memory[index] = 0xFF;
+        }
+
+        ppu->secondary_oam_index = 0;
+        ppu->primary_oam_index = 0;
+    } else if (ppu->dot >= 65 && ppu->dot <= 256) {
+        // TODO: Temporary solution
+        if (ppu->primary_oam_index >= 32 || ppu->secondary_oam_index >= 8) {
+            return;
+        }
+
+        b8 is_odd = (ppu->dot & 0x1) == 1;
+        // Odd: Read from primary
+        if (is_odd) {
+            // Copying sprite
+            if (ppu->copy_index == 0) {
+                ppu->oam_data_latch = ppu->primary_oam[ppu->primary_oam_index];
+                ppu->primary_oam_index++;
+                // Don't know if this copy is actually necessary but better safe
+                // than sorry.
+                ppu->secondary_oam[ppu->secondary_oam_index].y = ppu->oam_data_latch.y;
+            }
+        }
+        // Even: Write to secondary
+        else {
+            // A read should always have happened before this
+            assert(ppu->primary_oam_index > 0);
+
+            // Check if we're on the next scanline
+            if (ppu->copy_index == 0 && is_sprite_on_scanline(ppu, ppu->oam_data_latch, ppu->scanline+1)) {
+                // log_debug("Copy primary %d into secondary %d", ppu->primary_oam_index-1, ppu->secondary_oam_index);
+                ppu->copy_index = 1;
+            } else if (ppu->copy_index > 0) {
+                // I'm truly sorry to anyone reading this.
+                u8 byte = ((u8*) &ppu->oam_data_latch)[ppu->copy_index];
+                u8* secondary_oam_mem = (u8*) &ppu->secondary_oam[ppu->secondary_oam_index];
+                secondary_oam_mem[ppu->copy_index] = byte;
+                ppu->copy_index++;
+                if (ppu->copy_index == 4) {
+                    // log_debug("%d:%d: %d, %d", ppu->scanline, ppu->dot, ppu->primary_oam_index-1, ppu->secondary_oam_index);
+                    // log_debug("%d, %d", ppu->oam_data_latch.y, ppu->secondary_oam[ppu->secondary_oam_index].y);
+                    ppu->copy_index = 0;
+                    ppu->secondary_oam_index++;
+                }
+            }
+        }
+    } else if (ppu->dot >= 257 && ppu->dot <= 320) {
+        if (ppu->dot == 257) {
+            memcpy(ppu->to_render_oam,
+                    ppu->secondary_oam,
+                    ppu->secondary_oam_index*sizeof(SpriteOam));
+            ppu->to_render_count = ppu->secondary_oam_index;
+
+            ppu->secondary_oam_index = 0;
+            ppu->primary_oam_index = 0;
+            assert(ppu->copy_index == 0);
+        }
+    }
+}
+
 static inline b8 ppu__rendering_disabled(const Ppu* ppu) {
     return !ppu->mask.background && !ppu->mask.sprite;
 }
@@ -376,15 +459,71 @@ PpuDot ppu_step(Ppu* ppu) {
 
     if (!ppu__rendering_disabled(ppu)) {
         ppu__background_step(ppu);
-        // ppu__sprite_step(ppu);
+        ppu__sprite_step(ppu);
 
         if (ppu->scanline >= 0 &&
                 ppu->scanline < 240 &&
                 ppu->dot >= 1 && ppu->dot <= 256) {
+            i32 x = ppu->dot-1;
+            u8 sprite_color = {0};
+            u8 sprite_priority = 0;
+            u8 sprite_palette_entry = 0;
+            for (u32 i = 0; i < ppu->to_render_count; i++) {
+                // Reverse index for reverse painters ordering
+                SpriteOam sprite = ppu->to_render_oam[i];
+
+                assert(is_sprite_on_scanline(ppu, sprite, ppu->scanline));
+                // log_debug("(%d, %d): (%d, %d)", x, ppu->scanline, sprite.x, sprite.y);
+                if (x >= sprite.x && x < sprite.x+8) {
+                    u32 sprite_x = x - sprite.x;
+                    i32 sprite_y = ppu->scanline - sprite.y;
+
+                    u16 pattern_addr_base = ppu->sprite_pattern_table_address;
+                    pattern_addr_base |= sprite.tile_index << 4;
+                    pattern_addr_base |= sprite_y;
+
+                    // Flip horizontally
+                    u8 plane_x = get_bit(sprite.attrib, 6) == 0 ? 7-sprite_x : sprite_x;
+
+                    u8 low_plane = ppu->bus.read(&ppu->bus, pattern_addr_base);
+                    u8 high_plane = ppu->bus.read(&ppu->bus, pattern_addr_base^0x8);
+                    sprite_palette_entry = get_bit(low_plane, plane_x) |
+                        (get_bit(high_plane, plane_x) << 1);
+                    sprite_color = sprite_palette_entry + (sprite.attrib & 0x3)*4;
+                    assert(sprite_color <= 0xF);
+                    sprite_color ^= 0x10;
+                    sprite_color = *ppu_get_color_ptr(ppu, sprite_color);
+
+                    sprite_priority = get_bit(sprite.attrib, 5);
+
+                    break;
+                }
+            }
+
+            u8 tile_color = ppu->last_shifted;
+
+            Color color = {255, 0, 255};
+            b8 tile_opaque = (ppu->last_shifted_palette_entry & 0x3) != 0;
+            b8 sprite_opaque = (sprite_palette_entry & 0x3) != 0;
+            if (!tile_opaque && !sprite_opaque) {
+                color = ppu_decode_color(ppu, *ppu_get_bg_color_ptr(ppu));
+            } else if (!tile_opaque && sprite_opaque) {
+                color = ppu_decode_color(ppu, sprite_color);
+            } else if (tile_opaque && !sprite_opaque) {
+                color = ppu_decode_color(ppu, tile_color);
+            } else {
+                if (sprite_priority == 0) {
+                    // log_debug("Here");
+                    color = ppu_decode_color(ppu, sprite_color);
+                } else {
+                    color = ppu_decode_color(ppu, tile_color);
+                }
+            }
+
             result = (PpuDot) {
                 .visible = true,
-                .color = ppu->last_shifted,
-                .x = ppu->dot-1,
+                .color = color,
+                .x = x,
                 .y = ppu->scanline,
             };
         }
@@ -486,6 +625,7 @@ u8* ppu_get_color_ptr(Ppu* ppu, u8 index) {
     b8 is_sprite = (index & 0x10) != 0;
     if (is_sprite && (index & 0x3) == 0) {
         index -= 0x10;
+        // log_debug("Here");
     }
     return &ppu->palette_indices[index];
 }
@@ -539,12 +679,12 @@ void ppu_oam_address(Ppu* ppu, u8 value) {
 }
 
 u8 ppu_oam_data_read(Ppu* ppu) {
-    u8* oam_memory = (u8*) ppu->oam;
+    u8* oam_memory = (u8*) ppu->primary_oam;
     return oam_memory[ppu->oam_addr];
 }
 
 void ppu_oam_data_write(Ppu* ppu, u8 value) {
-    u8* oam_memory = (u8*) ppu->oam;
+    u8* oam_memory = (u8*) ppu->primary_oam;
     oam_memory[ppu->oam_addr] = value;
     ppu->oam_addr++;
 }

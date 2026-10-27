@@ -102,9 +102,7 @@ u8 mem_cpu_read(MemoryBus* bus, u16 address) {
         value = *memory;
     }
 
-    // if (cpu_is_halted(&machine->cpu)) {
-    //     log_info("CPU: READ(t%d): $%04X, %d ($%02X)", machine->cpu.t, address, value, value);
-    // }
+    // log_info("CPU: READ(t%d): $%04X, %d ($%02X)", machine->cpu.t, address, value, value);
 
     if (memory == &dummy) {
         abort();
@@ -154,11 +152,11 @@ void mem_cpu_write(MemoryBus* bus, u16 address, u8 value) {
     }
 
     if (address >= 0x8000) {
-        fprintf(stderr, "WARN: Writing to ROM!\n");
+        log_warn("Writing to ROM!");
         // abort();
     }
 
-    // printf("CPU: WRITE(t%d): $%04X, %d ($%02X)\n", machine->cpu.t, address, value, value);
+    // log_info("CPU: WRITE(t%d): $%04X, %d ($%02X)", machine->cpu.t, address, value, value);
 }
 
 u8* mem_ppu_helper(Machine* machine, u16 address) {
@@ -201,7 +199,7 @@ u8 mem_ppu_read(MemoryBus* bus, u16 address) {
     if (memory != NULL) {
         value = *memory;
     }
-    // printf("PPU: READ(%d:%d): $%04X, %d ($%02X)\n", machine->ppu.scanline, machine->ppu.dot, address, value, value);
+    // log_info("PPU: READ(%d:%d): $%04X, %d ($%02X)", machine->ppu.scanline, machine->ppu.dot, address, value, value);
     if (memory == NULL) {
         abort();
     }
@@ -210,7 +208,7 @@ u8 mem_ppu_read(MemoryBus* bus, u16 address) {
 
 void mem_ppu_write(MemoryBus* bus, u16 address, u8 value) {
     Machine* machine = bus->ctx;
-    // printf("PPU: WRITE(%d:%d): $%04X, %d ($%02X)\n", machine->ppu.scanline, machine->ppu.dot, address, value, value);
+    // log_info("PPU: WRITE(%d:%d): $%04X, %d ($%02X)", machine->ppu.scanline, machine->ppu.dot, address, value, value);
     *mem_ppu_helper(machine, address) = value;
 }
 
@@ -275,6 +273,47 @@ void print_bits(const void* data, u32 byte_count) {
 
 i32 main(void) {
     logger_register_callback(log_stdout_callback, NULL);
+
+#if 0
+
+    Machine machine = {
+        .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
+    };
+    print_nes_rom(machine.rom);
+    assert(machine.rom.mapper == 0 && machine.rom.submapper == 0);
+
+    // Currently hard-coded to be an NMOS mapper.
+    machine.cpu = cpu_init((MemoryBus) {
+            .ctx = &machine,
+            .read = mem_cpu_read,
+            .write = mem_cpu_write,
+        });
+    Cpu* cpu = &machine.cpu;
+
+    machine.ppu = ppu_init((MemoryBus) {
+            .ctx = &machine,
+            .read = mem_ppu_read,
+            .write = mem_ppu_write,
+        });
+    Ppu* ppu = &machine.ppu;
+    machine.rom.nametable_layout = NT_LAYOUT_VERTICAL;
+
+    // Fill page
+    for (u32 i = 0; i < 256; i++) {
+        mem_cpu_write(&cpu->bus, i, i);
+    }
+
+    oam_dma_signal(&machine.oam_dma, 0);
+    while (machine.oam_dma.state != DMA_IDLE) {
+        oam_dma_step(&machine.oam_dma, cpu, ppu);
+    }
+
+    for (u32 i = 0; i < 64; i++) {
+        SpriteOam sprite = ppu->primary_oam[i];
+        log_debug("%d, %d, %d, %d", sprite.y, sprite.tile_index, sprite.attrib, sprite.x);
+    }
+
+#else
 
     //
     // Initialize NES
@@ -443,6 +482,7 @@ i32 main(void) {
         if (integer_scaling) {
             scale = floorf(scale);
         }
+        // scale = 1;
 
         SDL_FRect dst = {
             .x = roundf((viewport.w - src.w*scale) / 2.0f),
@@ -468,4 +508,6 @@ i32 main(void) {
     SDL_DestroyWindow(window);
     SDL_Quit();
     return 0;
+
+#endif
 }
