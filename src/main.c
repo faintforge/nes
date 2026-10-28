@@ -178,15 +178,8 @@ u8* mem_ppu_helper(Machine* machine, u16 address) {
         return &machine->ppu_vram[address - 0x2000];
     }
 
-    if (address >= 0x3000 && address < 0x3F00) {
+    if (address >= 0x3000 && address < 0x4000) {
         return mem_ppu_helper(machine, address - 0x1000);
-    }
-
-    // Internal palette
-    // TODO: www.nesdev.org/wiki/PPU_registers#Reading_palette_RAM
-    if (address >= 0x3F00 && address < 0x4000) {
-        u8 index = address & 0x1F;
-        return ppu_get_color_ptr(&machine->ppu, index);
     }
 
     return NULL;
@@ -321,9 +314,9 @@ i32 main(void) {
     Machine machine = {
         // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
-        .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/color_test.nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/full_nes_palette.nes"),
+        .rom = load_nes_rom_from_file("nes_roms/full_nes_palette.nes"),
     };
     print_nes_rom(machine.rom);
     assert(machine.rom.mapper == 0 && machine.rom.submapper == 0);

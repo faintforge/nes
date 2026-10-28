@@ -439,6 +439,15 @@ static inline b8 ppu__rendering_disabled(const Ppu* ppu) {
     return !ppu->mask.background && !ppu->mask.sprite;
 }
 
+u8 ppu_get_bg_color(Ppu* ppu) {
+    // Normal EXT pin
+    u8 index = 0;
+    if (ppu->v >= 0x3F00 && ppu->v < 0x4000) {
+        index = (ppu->v) & 0x1F;
+    }
+    return ppu->palette_indices[index];
+}
+
 PpuDot ppu_step(Ppu* ppu) {
     // TODO: Factor out a bunch of stuff. This is a mess of a function. And the
     // Ppu struct should be broken up into smaller components too.
@@ -474,7 +483,7 @@ PpuDot ppu_step(Ppu* ppu) {
                     ppu->dot >= 1 && ppu->dot <= 256) {
                 result = (PpuDot) {
                     .visible = true,
-                    .color = ppu_decode_color(ppu, *ppu_get_bg_color_ptr(ppu)),
+                    .color = ppu_decode_color(ppu, ppu_get_bg_color(ppu)),
                     .x = ppu->dot-1,
                     .y = ppu->scanline,
                 };
@@ -511,7 +520,7 @@ PpuDot ppu_step(Ppu* ppu) {
                         sprite_color_index = sprite_palette_entry + (sprite.attrib & 0x3)*4;
                         assert(sprite_color_index <= 0xF);
                         sprite_color_index ^= 0x10;
-                        sprite_color_index = *ppu_get_color_ptr(ppu, sprite_color_index);
+                        sprite_color_index = ppu->palette_indices[sprite_color_index];
 
                         sprite_priority = get_bit(sprite.attrib, 5);
 
@@ -524,7 +533,7 @@ PpuDot ppu_step(Ppu* ppu) {
                 u8 tile_palette_entry = c.plane_low | (c.plane_high << 1);
                 u8 tile_palette = c.palette_low | (c.palette_high << 1);
                 u8 tile_color_index = tile_palette_entry + tile_palette*4;
-                tile_color_index = *ppu_get_color_ptr(ppu, tile_color_index);
+                tile_color_index = ppu->palette_indices[tile_color_index];
 
                 if (!ppu->mask.background) {
                     tile_palette_entry = 0;
@@ -538,7 +547,7 @@ PpuDot ppu_step(Ppu* ppu) {
                 b8 sprite_opaque = (sprite_palette_entry & 0x3) != 0;
 
                 if (!tile_opaque && !sprite_opaque) {
-                    color = ppu_decode_color(ppu, *ppu_get_bg_color_ptr(ppu));
+                    color = ppu_decode_color(ppu, ppu_get_bg_color(ppu));
                 } else if (!tile_opaque && sprite_opaque) {
                     color = ppu_decode_color(ppu, sprite_color_index);
                 } else if (tile_opaque && !sprite_opaque) {
@@ -645,25 +654,6 @@ Color ppu_decode_color(const Ppu* ppu, u8 color) {
     return result;
 }
 
-u8* ppu_get_color_ptr(Ppu* ppu, u8 index) {
-    assert(index < 0x20);
-    // Sprite color 0 mirrors background color 0 in every palette
-    b8 is_sprite = (index & 0x10) != 0;
-    if (is_sprite && (index & 0x3) == 0) {
-        index -= 0x10;
-    }
-    return &ppu->palette_indices[index];
-}
-
-u8* ppu_get_bg_color_ptr(Ppu* ppu) {
-    // Normal EXT pin
-    u8 index = 0;
-    if (ppu->v >= 0x3F00 && ppu->v < 0x4000) {
-        index = (ppu->v) & 0x1F;
-    }
-    return ppu_get_color_ptr(ppu, index);
-}
-
 void ppu_ctrl(Ppu* ppu, u8 value) {
     // [Reference](https://www.nesdev.org/wiki/PPU_registers#PPUCTRL)
     // Bitmask 00001100_00000000 = 0x0C00
@@ -749,8 +739,15 @@ void ppu_address(Ppu* ppu, u8 value) {
 }
 
 u8 ppu_data_read(Ppu* ppu) {
-    u8 prev_read = ppu->read_data_latch;
+    u8 result = ppu->read_data_latch;
     ppu->read_data_latch = ppu->bus.read(&ppu->bus, ppu->v);
+
+    // if (ppu->v >= 0x3F00 && ppu->v < 0x3F20) {
+    if (ppu->v >= 0x3F00 && ppu->v < 0x4000) {
+        u8 index = ppu->v & 0x1F;
+        result = ppu->palette_indices[index];
+    }
+
     switch (ppu->vram_increment) {
         case VRAM_INCREMENT_ACROSS:
             ppu->v++;
@@ -762,11 +759,34 @@ u8 ppu_data_read(Ppu* ppu) {
             UNREACHABLE();
     }
     ppu->v &= 0x7FFF;
-    return prev_read;
+    return result;
 }
 
 void ppu_data_write(Ppu* ppu, u8 value) {
-    ppu->bus.write(&ppu->bus, ppu->v, value);
+    if (ppu->v >= 0x3F00 && ppu->v < 0x4000) {
+        u8 index = ppu->v & 0x1F;
+        // Palette entry 0 (transparent)
+        if ((index & 0x3) == 0) {
+            // Tile palette
+            ppu->palette_indices[0x00] = value;
+            ppu->palette_indices[0x04] = value;
+            ppu->palette_indices[0x08] = value;
+            ppu->palette_indices[0x0C] = value;
+            ppu->palette_indices[0x0C] = value;
+
+            // Sprite palette
+            ppu->palette_indices[0x10] = value;
+            ppu->palette_indices[0x14] = value;
+            ppu->palette_indices[0x18] = value;
+            ppu->palette_indices[0x1C] = value;
+            ppu->palette_indices[0x1C] = value;
+        } else {
+            ppu->palette_indices[index] = value;
+        }
+    } else {
+        ppu->bus.write(&ppu->bus, ppu->v, value);
+    }
+
     switch (ppu->vram_increment) {
         case VRAM_INCREMENT_ACROSS:
             ppu->v++;

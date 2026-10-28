@@ -135,8 +135,6 @@ extern PpuDot ppu_step(Ppu* ppu);
 // 'palette', eg. the amount of colors*3.
 extern void ppu_load_palette(Ppu* ppu, const u8* palette, u32 palette_size);
 extern Color ppu_decode_color(const Ppu* ppu, u8 color);
-extern u8* ppu_get_color_ptr(Ppu* ppu, u8 index);
-extern u8* ppu_get_bg_color_ptr(Ppu* ppu);
 
 // Memory mapped operations
 extern void ppu_ctrl(Ppu* ppu, u8 value);
