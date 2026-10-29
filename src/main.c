@@ -268,43 +268,188 @@ i32 main(void) {
     logger_register_callback(log_stdout_callback, NULL);
 
 #if 0
+    // TODO: Pull this out into its own test file.
+
+    u8 prg_rom[16384] = {0};
+    u8 chr_rom[8192] = {0};
+    memset(prg_rom, 0xEA, sizeof(prg_rom));
 
     Machine machine = {
-        .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
+        .rom = {
+            .prg_rom = prg_rom,
+            .prg_rom_size = sizeof(prg_rom),
+            .chr_rom = chr_rom,
+            .chr_rom_size = 8192,
+        },
     };
-    print_nes_rom(machine.rom);
-    assert(machine.rom.mapper == 0 && machine.rom.submapper == 0);
-
-    // Currently hard-coded to be an NMOS mapper.
-    machine.cpu = cpu_init((MemoryBus) {
-            .ctx = &machine,
-            .read = mem_cpu_read,
-            .write = mem_cpu_write,
-        });
     Cpu* cpu = &machine.cpu;
-
-    machine.ppu = ppu_init((MemoryBus) {
-            .ctx = &machine,
-            .read = mem_ppu_read,
-            .write = mem_ppu_write,
-        });
     Ppu* ppu = &machine.ppu;
-    machine.rom.nametable_layout = NT_LAYOUT_VERTICAL;
+    MemoryBus cpu_mem_bus = {
+        .ctx = &machine,
+        .read = mem_cpu_read,
+        .write = mem_cpu_write,
+    };
+    MemoryBus ppu_mem_bus = {
+        .ctx = &machine,
+        .read = mem_ppu_read,
+        .write = mem_ppu_write,
+    };
 
-    // Fill page
-    for (u32 i = 0; i < 256; i++) {
-        mem_cpu_write(&cpu->bus, i, i);
+    // =========================================================================
+    // Test cycle count for a single scanline (rendering disabled)
+
+    *cpu = cpu_init(cpu_mem_bus);
+    *ppu = ppu_init(ppu_mem_bus);
+    u32 counter = 0;
+    while (ppu->scanline == -1) {
+        if (counter % 3 == 0) {
+            cpu_step(cpu);
+        }
+        ppu_step(ppu);
+        counter++;
+    }
+    assert(ppu->cycle == 341);
+    assert(cpu->cycle == 114);
+
+    // =========================================================================
+    // Test cycle count for a single frame (rendering disabled)
+
+    *cpu = cpu_init(cpu_mem_bus);
+    *ppu = ppu_init(ppu_mem_bus);
+    counter = 0;
+    while (counter == 0 || ppu->scanline != -1 || ppu->dot != 0) {
+        if (counter % 3 == 0) {
+            cpu_step(cpu);
+        }
+        ppu_step(ppu);
+        counter++;
+    }
+    assert(ppu->cycle == 89342);
+    assert(cpu->cycle == 29781);
+
+    // =========================================================================
+    // Test cycle count for three frames (rendering disabled)
+    //
+    // Frames have to be averaged over a number of frames divisable by three
+    // or else the timing won't be correct because the CPU and PPU won't be
+    // synced by the end.
+
+    *cpu = cpu_init(cpu_mem_bus);
+    *ppu = ppu_init(ppu_mem_bus);
+    counter = 0;
+    u32 frame_counter = 0;
+    while (frame_counter < 3) {
+        if (counter % 3 == 0) {
+            cpu_step(cpu);
+        }
+        ppu_step(ppu);
+
+        if (counter > 0 && ppu->scanline == -1 && ppu->dot == 0) {
+            frame_counter++;
+        }
+        counter++;
+    }
+    const f64 theta = 1e-3;
+    assert(ppu->cycle / 3.0 == 89342.0);
+    assert(cpu->cycle / 3.0 >= 29780.667 - theta &&
+            cpu->cycle / 3.0 <= 29780.667 + theta);
+
+    // =========================================================================
+    // Test cycle count for two frames (rendering enabled)
+
+    *cpu = cpu_init(cpu_mem_bus);
+    *ppu = ppu_init(ppu_mem_bus);
+    ppu->mask.background = 1;
+    ppu->mask.sprite = 1;
+    counter = 0;
+    frame_counter = 0;
+    while (frame_counter < 2) {
+        if (counter % 3 == 0) {
+            cpu_step(cpu);
+        }
+        ppu_step(ppu);
+
+        if (counter > 0 && ppu->scanline == -1 && ppu->dot == 0) {
+            frame_counter++;
+        }
+        counter++;
+    }
+    assert(ppu->cycle / 2.0 == 89341.5);
+    assert(cpu->cycle / 2.0 == 29780.5);
+
+    // =========================================================================
+    // Test V-blank duration (rendering disabled)
+
+    *cpu = cpu_init(cpu_mem_bus);
+    *ppu = ppu_init(ppu_mem_bus);
+    counter = 0;
+    i32 vblank_start = -1;
+    while (vblank_start == -1 || ppu->vblank_flag) {
+        if (vblank_start == -1 && ppu->vblank_flag) {
+            vblank_start = ppu->cycle;
+        }
+
+        if (counter % 3 == 0) {
+            cpu_step(cpu);
+        }
+        ppu_step(ppu);
+        counter++;
+    }
+    assert((ppu->cycle - vblank_start) / 341.0 == 20.0);
+
+#elif 0
+
+    u8 prg_rom[16384] = {0};
+    u8 chr_rom[8192] = {0};
+    memset(prg_rom, 0xEA, sizeof(prg_rom));
+
+    Machine machine = {
+        .rom = {
+            .prg_rom = prg_rom,
+            .prg_rom_size = sizeof(prg_rom),
+            .chr_rom = chr_rom,
+            .chr_rom_size = 8192,
+        },
+    };
+    Cpu* cpu = &machine.cpu;
+    Ppu* ppu = &machine.ppu;
+    MemoryBus cpu_mem_bus = {
+        .ctx = &machine,
+        .read = mem_cpu_read,
+        .write = mem_cpu_write,
+    };
+    MemoryBus ppu_mem_bus = {
+        .ctx = &machine,
+        .read = mem_ppu_read,
+        .write = mem_ppu_write,
+    };
+
+    *cpu = cpu_init(cpu_mem_bus);
+    *ppu = ppu_init(ppu_mem_bus);
+
+    u32 index_to_check = 9;
+    ppu->v = 0x3F00 + index_to_check;
+    ppu->palette_indices[index_to_check] = 10;
+
+    u8 framebuffer[PICTURE_WIDTH*PICTURE_HEIGHT*3] = {0};
+    while (ppu->scanline < 240) {
+        PpuDot dot = ppu_step(ppu);
+        if (dot.visible) {
+            framebuffer[(dot.x+dot.y*PICTURE_WIDTH)*3 + 0] = dot.color.r;
+            framebuffer[(dot.x+dot.y*PICTURE_WIDTH)*3 + 1] = dot.color.g;
+            framebuffer[(dot.x+dot.y*PICTURE_WIDTH)*3 + 2] = dot.color.b;
+        }
     }
 
-    oam_dma_signal(&machine.oam_dma, 0);
-    while (machine.oam_dma.state != DMA_IDLE) {
-        oam_dma_step(&machine.oam_dma, cpu, ppu);
+    u8 expected_framebuffer[PICTURE_WIDTH*PICTURE_HEIGHT*3] = {0};
+    Color c = ppu->palette[ppu->palette_indices[index_to_check]];
+    for (u32 i = 0; i < PICTURE_WIDTH*PICTURE_HEIGHT; i++) {
+        expected_framebuffer[i*3+0] = c.r;
+        expected_framebuffer[i*3+1] = c.g;
+        expected_framebuffer[i*3+2] = c.b;
     }
 
-    for (u32 i = 0; i < 64; i++) {
-        SpriteOam sprite = ppu->primary_oam[i];
-        log_debug("%d, %d, %d, %d", sprite.y, sprite.tile_index, sprite.attrib, sprite.x);
-    }
+    assert(memcmp(framebuffer, expected_framebuffer, sizeof(framebuffer)) == 0);
 
 #else
 
@@ -315,8 +460,11 @@ i32 main(void) {
         // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
+
         // .rom = load_nes_rom_from_file("nes_roms/color_test.nes"),
-        .rom = load_nes_rom_from_file("nes_roms/full_nes_palette.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/full_nes_palette.nes"),
+        .rom = load_nes_rom_from_file("nes_roms/palette.nes"),
+        // .rom = load_nes_rom_from_file("asm/external/out/blargg_full_nes_palette.nes"),
     };
     print_nes_rom(machine.rom);
     assert(machine.rom.mapper == 0 && machine.rom.submapper == 0);
@@ -401,10 +549,11 @@ i32 main(void) {
     b8 integer_scaling = false;
 
     b8 is_dirty = true;
+    u32 pixel_idx = 0;
 
     u64 clock_hz = 21441960;
     u64 clock_timer = 0;
-    u32 tick = 0;
+    u64 tick = 0;
 
     u64 last = SDL_GetTicksNS();
     while (running) {
@@ -423,17 +572,25 @@ i32 main(void) {
                 PpuDot dot = ppu_step(ppu);
 
                 if (dot.visible) {
-                    output_pixels[(dot.x + dot.y*PICTURE_WIDTH)*4 + 0] = dot.color.r;
-                    output_pixels[(dot.x + dot.y*PICTURE_WIDTH)*4 + 1] = dot.color.g;
-                    output_pixels[(dot.x + dot.y*PICTURE_WIDTH)*4 + 2] = dot.color.b;
-                    output_pixels[(dot.x + dot.y*PICTURE_WIDTH)*4 + 3] = 255;
+                    // output_pixels[(dot.x + dot.y*PICTURE_WIDTH)*4 + 0] = dot.color.r;
+                    // output_pixels[(dot.x + dot.y*PICTURE_WIDTH)*4 + 1] = dot.color.g;
+                    // output_pixels[(dot.x + dot.y*PICTURE_WIDTH)*4 + 2] = dot.color.b;
+                    // output_pixels[(dot.x + dot.y*PICTURE_WIDTH)*4 + 3] = 255;
+
+                    // log_debug("$%04X", ppu->v);
+                    output_pixels[pixel_idx++] = dot.color.r;
+                    output_pixels[pixel_idx++] = dot.color.g;
+                    output_pixels[pixel_idx++] = dot.color.b;
+                    output_pixels[pixel_idx++] = 255;
                 }
             }
 
             cpu->nmi = ppu->vblank_nmi_signal;
 
             if (ppu->vblank_flag && is_dirty) {
+                assert(pixel_idx == PICTURE_WIDTH*PICTURE_HEIGHT*4);
                 is_dirty = false;
+                pixel_idx = 0;
                 SDL_UpdateTexture(output, NULL, output_pixels, PICTURE_WIDTH*4);
             } else if (!ppu->vblank_flag) {
                 is_dirty = true;

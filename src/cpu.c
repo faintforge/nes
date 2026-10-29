@@ -942,6 +942,7 @@ void cpu_step(Cpu* cpu) {
     // Always halt after the read has occured. Very important for reads with
     // side effects (MMIO).
     if (cpu_is_halted(cpu)) {
+        cpu->cycle++;
         return;
     }
 
@@ -955,6 +956,7 @@ void cpu_step(Cpu* cpu) {
         if (cpu->t == 0) {
             cpu->ir = 0x00;
             cpu->t++;
+            cpu->cycle++;
             return;
         }
     } else {
@@ -966,6 +968,7 @@ void cpu_step(Cpu* cpu) {
             if (OPCODE_TABLE[cpu->ir].type == OP_BRK) {
                 cpu->interrupt_type = BRK;
             }
+            cpu->cycle++;
             return;
         }
     }

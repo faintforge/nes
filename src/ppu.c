@@ -333,7 +333,6 @@ static void ppu__background_step(Ppu* ppu) {
             // Copy nametable-Y + fine-Y
             ppu->v = copy_bits(ppu->v, ppu->t, 0xB, 0xE);
         }
-        // TODO: Skip last dot on odd frames
     }
     ppu__scanline(ppu);
 }
@@ -452,27 +451,11 @@ PpuDot ppu_step(Ppu* ppu) {
     // TODO: Factor out a bunch of stuff. This is a mess of a function. And the
     // Ppu struct should be broken up into smaller components too.
 
-    if (ppu->dot > 340) {
-        ppu->dot = 0;
-        ppu->scanline++;
-        if (ppu->scanline > 260) {
-            ppu->scanline = -1;
-        }
-    }
-
     if (ppu->ppu_address_delay == 0) {
         ppu->ppu_address_delay = -1;
         ppu->v = ppu->t;
     }
     ppu->ppu_address_delay = max(-1, ppu->ppu_address_delay-1);
-
-    if (ppu->scanline == -1 && ppu->dot == 1) {
-        ppu->vblank_flag = 0;
-        ppu->vblank_nmi_signal = 0;
-    } else if (ppu->scanline == 241 && ppu->dot == 1) {
-        ppu->vblank_flag = 1;
-        ppu->vblank_nmi_signal = ppu->vblank_nmi_enabled;
-    }
 
     PpuDot result = {0};
 
@@ -547,7 +530,7 @@ PpuDot ppu_step(Ppu* ppu) {
                 b8 sprite_opaque = (sprite_palette_entry & 0x3) != 0;
 
                 if (!tile_opaque && !sprite_opaque) {
-                    color = ppu_decode_color(ppu, ppu_get_bg_color(ppu));
+                    color = ppu_decode_color(ppu, ppu->palette_indices[0]);
                 } else if (!tile_opaque && sprite_opaque) {
                     color = ppu_decode_color(ppu, sprite_color_index);
                 } else if (tile_opaque && !sprite_opaque) {
@@ -576,7 +559,34 @@ PpuDot ppu_step(Ppu* ppu) {
     // Idle V-blank lines
     else {}
 
-    ppu->dot++;
+    b8 skipped_first_dot = false;
+    if (ppu->scanline == -1) {
+        if (ppu->dot == 1) {
+            ppu->vblank_flag = 0;
+            ppu->vblank_nmi_signal = 0;
+        } else if (ppu->dot == 339 && ppu->is_frame_odd && !ppu__rendering_disabled(ppu)) {
+            ppu->scanline++;
+            ppu->dot = 0;
+            skipped_first_dot = true;
+        }
+    } else if (ppu->scanline == 241 && ppu->dot == 1) {
+        ppu->vblank_flag = 1;
+        ppu->vblank_nmi_signal = ppu->vblank_nmi_enabled;
+    }
+
+    if (!skipped_first_dot) {
+        ppu->dot++;
+        if (ppu->dot > 340) {
+            ppu->dot = 0;
+            ppu->scanline++;
+            if (ppu->scanline > 260) {
+                ppu->scanline = -1;
+                ppu->is_frame_odd = !ppu->is_frame_odd;
+            }
+        }
+    }
+
+    ppu->cycle++;
     return result;
 }
 
@@ -732,7 +742,10 @@ void ppu_address(Ppu* ppu, u8 value) {
     } else {
         ppu->t &= 0xFF00;
         ppu->t |= value;
-        ppu->ppu_address_delay = 1;
+        // log_debug("%d:%d: Old address: $%04X (%d)", ppu->scanline, ppu->dot, ppu->v, ppu->v & 0x1F);
+        ppu->v = ppu->t;
+        // log_debug("%d:%d: New address: $%04X (%d)", ppu->scanline, ppu->dot, ppu->v, ppu->v & 0x1F);
+        // ppu->ppu_address_delay = 1;
     }
 
     ppu->w = !ppu->w;
@@ -764,7 +777,7 @@ u8 ppu_data_read(Ppu* ppu) {
 
 void ppu_data_write(Ppu* ppu, u8 value) {
     if (ppu->v >= 0x3F00 && ppu->v < 0x4000) {
-        u8 index = ppu->v & 0x1F;
+        u8 index = (ppu->v - 0x3F00) & 0x1F;
         // Palette entry 0 (transparent)
         if ((index & 0x3) == 0) {
             // Tile palette
@@ -783,6 +796,7 @@ void ppu_data_write(Ppu* ppu, u8 value) {
         } else {
             ppu->palette_indices[index] = value;
         }
+        // log_info("%d:%d: Write to palette %d: %d", ppu->scanline, ppu->dot, index, value);
     } else {
         ppu->bus.write(&ppu->bus, ppu->v, value);
     }

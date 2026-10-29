@@ -115,6 +115,8 @@ struct Ppu {
 
     i16 scanline;
     u16 dot;
+    b8 is_frame_odd;
+    u64 cycle;
 };
 
 typedef struct PpuDot PpuDot;
