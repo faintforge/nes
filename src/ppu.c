@@ -500,6 +500,10 @@ PpuDot ppu_step(Ppu* ppu) {
                         u8 high_plane = ppu->bus.read(&ppu->bus, pattern_addr_base^0x8);
                         sprite_palette_entry = get_bit(low_plane, plane_x) |
                             (get_bit(high_plane, plane_x) << 1);
+                        // Transparent pixel
+                        if (sprite_palette_entry == 0) {
+                            continue;
+                        }
                         sprite_color_index = sprite_palette_entry + (sprite.attrib & 0x3)*4;
                         assert(sprite_color_index <= 0xF);
                         sprite_color_index ^= 0x10;
