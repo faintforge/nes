@@ -6,6 +6,7 @@
 #include "nes/rom.h"
 #include "nes/opcode_table.h"
 #include "nes/log.h"
+#include "nes/input.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +30,7 @@ struct Machine {
     Cpu cpu;
     Ppu ppu;
     OamDma oam_dma;
+    InputDevice input;
 };
 
 u8* mem_cpu_helper(Machine* machine, u16 address) {
@@ -40,6 +42,7 @@ u8* mem_cpu_helper(Machine* machine, u16 address) {
         return NULL;
     }
 
+    // APU and IO
     if (address >= 0x4000 && address < 0x4018) {
         static u8 dummy = 0xFE;
         return &dummy;
@@ -95,6 +98,19 @@ u8 mem_cpu_read(MemoryBus* bus, u16 address) {
                 value = ppu_data_read(ppu);
                 break;
         }
+    } else if (address >= 0x4000 && address < 0x4020) {
+        switch (address) {
+            // Controller 1
+            case 0x4016:
+                value = input_device_read(&machine->input);
+                break;
+            case 0x4017:
+                // TODO: Implement a second controller
+                value = 1;
+                break;
+            default:
+                break;
+        }
     } else {
         if (memory == NULL) {
             memory = &dummy;
@@ -143,9 +159,17 @@ void mem_cpu_write(MemoryBus* bus, u16 address, u8 value) {
                 ppu_data_write(ppu, value);
                 break;
         }
-    } else if (address == 0x4014) {
-        oam_dma_signal(&machine->oam_dma, value);
-        // ppu_oam_dma(&machine->ppu, value);
+    } else if (address >= 0x4000 && address < 0x4020) {
+        switch (address) {
+            case 0x4014:
+                oam_dma_signal(&machine->oam_dma, value);
+                break;
+            case 0x4016:
+                machine->input.polling = value & 0x1;
+                break;
+            default:
+                break;
+        }
     } else {
         u8* memory = mem_cpu_helper(machine, address);
         *memory = value;
@@ -459,12 +483,14 @@ i32 main(void) {
     Machine machine = {
         // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
+        .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
 
         // .rom = load_nes_rom_from_file("nes_roms/color_test.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/full_nes_palette.nes"),
-        .rom = load_nes_rom_from_file("nes_roms/palette.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/palette.nes"),
         // .rom = load_nes_rom_from_file("asm/external/out/blargg_full_nes_palette.nes"),
+
+        .input = input_device_keyboard(),
     };
     print_nes_rom(machine.rom);
     assert(machine.rom.mapper == 0 && machine.rom.submapper == 0);
@@ -564,6 +590,7 @@ i32 main(void) {
         clock_timer += dt_ns;
         while (clock_timer >= 1.0e9 / clock_hz) {
             if (tick % 12 == 0) {
+                machine.input.update(&machine.input);
                 cpu_step(cpu);
                 oam_dma_step(&machine.oam_dma, cpu, ppu);
             }
