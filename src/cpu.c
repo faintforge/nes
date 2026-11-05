@@ -212,7 +212,7 @@ void step_addressing_mode(Cpu* cpu, AddrMode addr_mode, u8 bus_op_type) {
                 cpu->internal_carry = low > 0xFF;
                 cpu->address_bus = (high << 8) | (low & 0xFF);
 
-                if (low <= 0xFF) {
+                if (low <= 0xFF && bus_op_type == READ) {
                     cpu->addr_ready_t = cpu->t;
                 }
                 cpu->t++;
@@ -387,7 +387,7 @@ void op_group_one(Cpu* cpu, Op op, GroupOneFunc func, void* ctx) {
     }
 
     if (!cpu_is_addr_ready(cpu)) {
-        step_addressing_mode(cpu, op.addr_mode, WRITE);
+        step_addressing_mode(cpu, op.addr_mode, READ);
         return;
     }
 
@@ -405,7 +405,7 @@ void op_ld(Cpu* cpu, void* ctx) {
 void op_adc(Cpu* cpu, void* ctx) {
     (void) ctx;
 
-    if (!cpu_get_status_flag(cpu, CPU_FLAG_DECIMAL)) {
+    if (cpu->disable_decimal_mode || !cpu_get_status_flag(cpu, CPU_FLAG_DECIMAL)) {
         u16 result = cpu->a + cpu->data_bus + cpu_get_status_flag(cpu, CPU_FLAG_CARRY);
 
         u8 result_sign = get_bit(result, 7);
@@ -446,7 +446,7 @@ void op_adc(Cpu* cpu, void* ctx) {
 void op_sbc(Cpu* cpu, void* ctx) {
     (void) ctx;
 
-    if (!cpu_get_status_flag(cpu, CPU_FLAG_DECIMAL)) {
+    if (cpu->disable_decimal_mode || !cpu_get_status_flag(cpu, CPU_FLAG_DECIMAL)) {
         i16 result = cpu->a + ~cpu->data_bus + cpu_get_status_flag(cpu, CPU_FLAG_CARRY);
 
         u8 result_sign = get_bit(result, 7);
@@ -822,6 +822,7 @@ void op_rti(Cpu* cpu, Op op) {
         // Fetch adl
         case 3:
             cpu->p = cpu->data_bus & ~CPU_FLAG_BREAK;
+            cpu->p |= CPU_FLAG__EXPANSION;
             cpu->s++;
             cpu->address_bus = 0x0100 | cpu->s;
             cpu->t++;

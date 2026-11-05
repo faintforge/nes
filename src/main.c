@@ -221,13 +221,13 @@ i32 main(void) {
     Machine machine = {
         // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
-        .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
 
         // .rom = load_nes_rom_from_file("nes_roms/color_test.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/full_nes_palette.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/palette.nes"),
         // .rom = load_nes_rom_from_file("asm/external/out/blargg_full_nes_palette.nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/cpu_timing_test.nes"),
+        .rom = load_nes_rom_from_file("nes_roms/cpu_timing_test.nes"),
 
         .input = input_device_keyboard(),
     };
@@ -240,6 +240,7 @@ i32 main(void) {
             .write = mem_cpu_write,
         });
     Cpu* cpu = &machine.cpu;
+    cpu->disable_decimal_mode = true;
 
     // cpu->bus.read(&cpu->bus, 0x8E3E);
 
@@ -328,7 +329,7 @@ i32 main(void) {
         while (clock_timer >= 1.0e9 / clock_hz) {
             if (tick % 12 == 0) {
                 machine.input.update(&machine.input);
-                assert((cpu->p & CPU_FLAG_DECIMAL) == 0);
+                // assert((cpu->p & CPU_FLAG_DECIMAL) == 0);
                 cpu_step(cpu);
                 oam_dma_step(&machine.oam_dma, cpu, ppu);
             }

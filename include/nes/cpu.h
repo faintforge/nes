@@ -36,6 +36,8 @@ struct Cpu {
     u16 address_bus;
     u8 data_bus;
 
+    b8 disable_decimal_mode;
+
     // Registers
     u8 a;
     u8 x;
