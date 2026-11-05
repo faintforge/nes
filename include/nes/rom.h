@@ -4,8 +4,7 @@
 #include "nes/common.h"
 
 typedef enum NesRomVariation {
-    NES_ROM_VARIATION_ERROR = -1,
-
+    NES_ROM_VARIATION_UNKNOWN,
     INES_ARCHAIC,
     INES07,
     INES,
@@ -20,35 +19,55 @@ typedef enum NtLayout {
 } NtLayout;
 
 static const char* const NES_ROM_VARIATION_STRING[NES_ROM_VARIATION__COUNT] = {
-    "archac iNES", "iNES 0.7", "iNES", "NES 2.0",
+    "Unknown", "archac iNES", "iNES 0.7", "iNES", "NES 2.0",
 };
 
-typedef struct NesRom NesRom;
-struct NesRom {
-    u8* full_rom;
-    NesRomVariation variation;
+typedef struct MappedMemory MappedMemory;
+struct MappedMemory {
+    u8* memory;
+    b8 writable;
+};
+
+typedef struct Mapper Mapper;
+struct Mapper {
+    u16 id;
+    u8 submapper;
+
+    // TODO: Bitflags
+    NtLayout nametable_layout;
+    u8 has_battery;
+    b8 has_trainer;
+    u8 alt_nametables;
+
+    u8 misc_roms;
+    u8 expansion_device;
 
     u8* prg_rom;
-    u8* chr_rom;
     u32 prg_rom_size;
+    u8* chr_rom;
     u32 chr_rom_size;
 
     // TODO: Figure out how to handle PRG-/CHR-(NV)RAM
     u32 prg_ram_size;
+    u8* chr_ram;
     u32 chr_ram_size;
     u32 prg_nvram_size;
     u32 chr_nvram_size;
 
-    NtLayout nametable_layout;
-    u8 battery;
-    b8 has_trainer;
-    u8 alt_nametables;
-    u16 mapper;
-    u8 submapper;
-    u8 misc_roms;
-    u8 expansion_device;
+    u8 vram[0x800];
 
     const u8* trainer;
+
+    MappedMemory (*cpu_cb)(Mapper* mapper, u16 address);
+    MappedMemory (*ppu_cb)(Mapper* mapper, u16 address);
+};
+
+typedef struct NesRom NesRom;
+struct NesRom {
+    u8* rom_data;
+    NesRomVariation variation;
+
+    Mapper mapper;
 };
 
 extern NesRom load_nes_rom_from_file(const char* filename);
