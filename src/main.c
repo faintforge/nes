@@ -124,9 +124,9 @@ i32 main(void) {
     // Initialize NES
     //
     Machine machine = {
-        // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"), // Needs mapper 1.5
+        .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
-        .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
 
         // .rom = load_nes_rom_from_file("nes_roms/tests/color_test.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/full_nes_palette.nes"),

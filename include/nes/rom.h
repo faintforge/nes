@@ -14,8 +14,10 @@ typedef enum NesRomVariation {
 } NesRomVariation;
 
 typedef enum NtLayout {
-    NT_LAYOUT_VERTICAL,
+    NT_LAYOUT_ONE_SCREEN_A,
+    NT_LAYOUT_ONE_SCREEN_B,
     NT_LAYOUT_HORIZONTAL,
+    NT_LAYOUT_VERTICAL,
 } NtLayout;
 
 static const char* const NES_ROM_VARIATION_STRING[NES_ROM_VARIATION__COUNT] = {
@@ -63,8 +65,17 @@ struct Mapper {
     const u8* trainer;
 
     MapperCallbacks cb;
+
+    // NOTE: MMC1 specific variables
+    // TODO: Make slice data structure for bounds checking on these
+    u8* prg_rom_bank0;
+    u8* prg_rom_bank1;
     u8* chr_rom_bank0;
     u8* chr_rom_bank1;
+    u8 shifter;
+    u8 shift_count;
+    u8 prg_rom_bank_mode;
+    u8 chr_bank_mode;
 };
 
 typedef struct NesRom NesRom;
