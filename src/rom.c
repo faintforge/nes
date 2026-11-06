@@ -124,7 +124,8 @@ static void mapper_nrom_ppu_write(Mapper* mapper, u16 address, u8 value) {
 static u8 mapper_mmc1_cpu_read(Mapper* mapper, u16 address) {
     if (address >= 0x6000 && address < 0x8000) {
         // TODO: Optional PRG-RAM
-        UNREACHABLE();
+        // UNREACHABLE();
+        return 0xEA;
     } else if (address >= 0x8000 && address < 0xC000) {
         return mapper->prg_rom_bank0[address - 0x8000];
     } else if (address >= 0xC000) {

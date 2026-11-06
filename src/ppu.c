@@ -347,6 +347,8 @@ static b8 is_sprite_on_scanline(const Ppu* ppu, SpriteOam sprite, i32 scanline) 
 }
 
 static void ppu__sprite_eval(Ppu* ppu) {
+    // https://www.nesdev.org/wiki/PPU_sprite_evaluation
+
     b8 is_odd = (ppu->dot & 0x1) == 1;
     // Odd: Read cycle
     if (is_odd) {
@@ -357,14 +359,15 @@ static void ppu__sprite_eval(Ppu* ppu) {
         ppu->secondary_oam[ppu->secondary_oam_index][ppu->oam_copy_idx] = ppu->oam_data_latch;
     }
 
+    i16 next_scanline = ppu->scanline + 1;
+    if (next_scanline == 240) { next_scanline = -1; };
+    u8 sprite_height = ppu->sprite_size == SPRITE_SIZE_8X8 ? 8 : 16;
     switch (ppu->sprite_eval_state) {
-        case 1: {
+        case 1:
             // Only check if the sprite is on the next scanline on read cycles
             // because that's when the y value was fetched.
             if (is_odd && !ppu->oam_copying_sprite) {
                 i16 y = ppu->oam_data_latch;
-                i16 next_scanline = ppu->scanline + 1;
-                u8 sprite_height = ppu->sprite_size == SPRITE_SIZE_8X8 ? 8 : 16;
                 if (next_scanline >= y && next_scanline < y+sprite_height) {
                     ppu->oam_copying_sprite = true;
                 } else {
@@ -382,7 +385,7 @@ static void ppu__sprite_eval(Ppu* ppu) {
                     ppu->oam_copying_sprite = false;
                 }
             }
-        } break;
+            break;
         case 2:
             ppu->primary_oam_index++;
             // 2a
@@ -394,12 +397,44 @@ static void ppu__sprite_eval(Ppu* ppu) {
             // 2b
             if (ppu->secondary_oam_index < 8) {
                 ppu->sprite_eval_state = 1;
-            } else {
+            }
+            // 2c
+            else if (ppu->secondary_oam_index == 8) {
                 ppu->oam_can_write = false;
+                ppu->sprite_eval_state = 3;
+            } else {
+                UNREACHABLE();
             }
             break;
-        case 3:
-            break;
+        case 3: {
+            u8 y = ppu->primary_oam[ppu->primary_oam_index][ppu->oam_overflow_y_idx];
+            // 3a
+            if ((next_scanline >= y && next_scanline < y+sprite_height) ||
+                    ppu->oam_found_overflow) {
+                ppu->sprite_overflow_flag = true;
+                ppu->oam_overflow_y_idx++;
+                ppu->oam_found_overflow = true;
+
+                if (ppu->oam_overflow_y_idx == 4) {
+                    ppu->oam_found_overflow = false;
+                    ppu->oam_overflow_y_idx = 0;
+                    ppu->primary_oam_index++;
+                    if (ppu->primary_oam_index >= 64) {
+                        ppu->sprite_eval_state = 4;
+                    }
+                }
+            }
+            // 3b
+            else {
+                ppu->primary_oam_index += 1;
+                ppu->oam_overflow_y_idx += 1;
+                ppu->oam_overflow_y_idx &= 0x3;
+
+                if (ppu->primary_oam_index >= 64) {
+                    ppu->sprite_eval_state = 4;
+                }
+            }
+        } break;
         case 4:
             break;
         default:
@@ -408,8 +443,6 @@ static void ppu__sprite_eval(Ppu* ppu) {
 }
 
 static void ppu__sprite_step(Ppu* ppu) {
-    assert(ppu->sprite_size == SPRITE_SIZE_8X8);
-
     // https://www.nesdev.org/wiki/PPU_sprite_evaluation
     if (ppu->dot >= 1 && ppu->dot <= 64) {
         u8 index = ppu->dot-1;
@@ -421,12 +454,15 @@ static void ppu__sprite_step(Ppu* ppu) {
         }
 
         ppu->primary_oam_index = 0;
+        ppu->oam_overflow_y_idx = 0;
         ppu->secondary_oam_index = 0;
         ppu->oam_can_write = true;
         ppu->sprite_eval_state = 1;
         assert(ppu->oam_copy_idx == 0);
     } else if (ppu->dot >= 65 && ppu->dot <= 256) {
-        ppu__sprite_eval(ppu);
+        if (ppu->scanline != -1) {
+            ppu__sprite_eval(ppu);
+        }
     } else if (ppu->dot >= 257 && ppu->dot <= 320) {
         if (ppu->dot == 257) {
             memcpy(ppu->to_render_oam,
@@ -553,6 +589,7 @@ PpuDot ppu_step(Ppu* ppu) {
                 } else if (tile_opaque && !sprite_opaque) {
                     color = ppu_decode_color(ppu, tile_color_index);
                 } else {
+                    ppu->sprite0_hit_flag = true;
                     if (sprite_priority == 0) {
                         color = ppu_decode_color(ppu, sprite_color_index);
                     } else {
@@ -578,9 +615,12 @@ PpuDot ppu_step(Ppu* ppu) {
 
     b8 skipped_first_dot = false;
     if (ppu->scanline == -1) {
-        if (ppu->dot == 1) {
+        if (ppu->dot == 0) {
+            ppu->sprite_overflow_flag = false;
+        } else if (ppu->dot == 1) {
             ppu->vblank_flag = 0;
             ppu->vblank_nmi_signal = 0;
+            ppu->sprite0_hit_flag = false;
         } else if (ppu->dot == 339 && ppu->is_frame_odd && !ppu__rendering_disabled(ppu)) {
             ppu->scanline++;
             ppu->dot = 0;

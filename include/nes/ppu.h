@@ -88,7 +88,9 @@ struct Ppu {
     // Index counters for sprite eval
     u8 primary_oam_index;
     u8 secondary_oam_index;
-    i8 oam_copy_idx;
+    u8 oam_copy_idx;
+    u8 oam_overflow_y_idx;
+    b8 oam_found_overflow;
 
     SpriteOam to_render_oam[8];
     u8 to_render_count;
