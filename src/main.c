@@ -48,7 +48,7 @@ u8 mem_cpu_read(MemoryBus* bus, u16 address) {
                 return input_device_read(&machine->input);
             case 0x4017:
                 // TODO: Implement a second controller
-                return 1;
+                return 0;
             default:
                 return 0;
         }
@@ -56,7 +56,7 @@ u8 mem_cpu_read(MemoryBus* bus, u16 address) {
         log_warn("Read to "HEX_U16" which is only avilable in CPU test mode!", address);
         return 0;
     } else {
-        return *machine->rom.mapper.cpu_cb(&machine->rom.mapper, address).memory;
+        return machine->rom.mapper.cb.cpu_read(&machine->rom.mapper, address);
     }
 }
 
@@ -84,26 +84,20 @@ void mem_cpu_write(MemoryBus* bus, u16 address, u8 value) {
     } else if (address >= 0x4018 && address < 0x4020) {
         log_warn("Read to "HEX_U16" which is only avilable in CPU test mode!", address);
     } else {
-        MappedMemory mapped = machine->rom.mapper.cpu_cb(&machine->rom.mapper, address);
-        if (mapped.writable) {
-            *mapped.memory = value;
-        }
+        machine->rom.mapper.cb.cpu_write(&machine->rom.mapper, address, value);
     }
 }
 
 u8 mem_ppu_read(MemoryBus* bus, u16 address) {
     Machine* machine = bus->ctx;
     Mapper* mapper = &machine->rom.mapper;
-    return *mapper->ppu_cb(mapper, address).memory;
+    return mapper->cb.ppu_read(mapper, address);
 }
 
 void mem_ppu_write(MemoryBus* bus, u16 address, u8 value) {
     Machine* machine = bus->ctx;
     Mapper* mapper = &machine->rom.mapper;
-    MappedMemory mapped = mapper->ppu_cb(mapper, address);
-    if (mapped.writable) {
-        *mapped.memory = value;
-    }
+    mapper->cb.ppu_write(mapper, address, value);
 }
 
 void print_bits(const void* data, u32 byte_count) {
@@ -130,20 +124,30 @@ i32 main(void) {
     // Initialize NES
     //
     Machine machine = {
-        // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"), // Needs mapper 1.5
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
+        .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
 
         // .rom = load_nes_rom_from_file("nes_roms/tests/color_test.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/full_nes_palette.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/palette.nes"),
         // .rom = load_nes_rom_from_file("asm/external/out/blargg_full_nes_palette.nes"),
-        .rom = load_nes_rom_from_file("nes_roms/tests/ppu_open_bus.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/demo_ntsc.nes"),
 
-        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_timing_test.nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_reads.nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_writes_oam.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_reads.nes"), // Needs mapper 3.0
+        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_writes_oam.nes"), // Needs unofficial opcodes
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_writes_ppumem.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_interrupts.nes"), // Needs mapper 1.0
+        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_reset_registers.nes"),
+
+        // =====================================================================
+        // Passing
+        // =====================================================================
+        // .rom = load_nes_rom_from_file("nes_roms/tests/1.Branch_Basics.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/2.Backward_Branch.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/3.Forward_Branch.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_timing_test.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/ppu_open_bus.nes"),
 
         .input = input_device_keyboard(),
     };

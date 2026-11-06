@@ -6,7 +6,7 @@
 b8 read_file(const char* filename, u8* output_buffer, u32* length) {
     FILE* fp = fopen(filename, "rb");
     if (fp == NULL) {
-        fprintf(stderr, "ERR: Failed to read file '%s': %s\n", filename, strerror(errno));
+        log_error("Failed to read file '%s': %s", filename, strerror(errno));
         return false;
     }
 
@@ -20,7 +20,7 @@ b8 read_file(const char* filename, u8* output_buffer, u32* length) {
     }
 
     if (_length > *length) {
-        fprintf(stderr, "ERR: Too small buffer to read into.\n");
+        log_error("ERR: Too small buffer to read into.");
         return false;
     }
 

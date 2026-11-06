@@ -11,8 +11,33 @@
 // PPU mapper space $0000-$3FFF
 //
 
+typedef struct MappedMemory MappedMemory;
+struct MappedMemory {
+    u8* memory;
+    b8 writable;
+};
+
+static MappedMemory mapper_util_vram(Mapper* mapper, u16 address) {
+    assert(address >= 0x2000 && address < 0x4000);
+
+    // https://www.nesdev.org/wiki/PPU_memory_map
+    // Vert 0 => $2000 $2000 $2800 $2800
+    // Hori 1 => $2000 $2400 $2000 $2400
+
+    // NOTE: Don't ask me how I came up with this bit magic. It took me half an
+    // hour at midnight to come up with this one-liner instead of like two
+    // if statements.
+    address &= ~(0x800 >> !mapper->nametable_layout);
+    address &= 0xFFF;
+
+    return (MappedMemory) {
+        .memory = &mapper->vram[address],
+        .writable = true,
+    };
+}
+
 // https://www.nesdev.org/wiki/NROM
-static MappedMemory mapper_nrom_cpu_cb(Mapper* mapper, u16 address) {
+static MappedMemory mapper_nrom_cpu_helper(Mapper* mapper, u16 address) {
     if (address >= 0x6000 && address < 0x8000) {
         // TODO: This is supposed to be open bus behavior
         // https://www.nesdev.org/wiki/Open_bus_behavior#CPU_open_bus
@@ -31,33 +56,25 @@ static MappedMemory mapper_nrom_cpu_cb(Mapper* mapper, u16 address) {
             .memory = &mapper->prg_rom[index],
             .writable = false,
         };
-
-        // if (address >= 0x8000 && address < 0xC000) {
-        //     return (MappedMemory) {
-        //         .memory = &mapper->prg_rom[address - 0x8000],
-        //         .writable = false,
-        //     };
-        // } else if (address >= 0xC000) {
-        //     if (mapper->prg_rom_size > kib(16)) {
-        //         return (MappedMemory) {
-        //             .memory = &mapper->prg_rom[address - 0x8000],
-        //             .writable = false,
-        //         };
-        //     } else {
-        //         return (MappedMemory) {
-        //             .memory = &mapper->prg_rom[address - 0xC000],
-        //             .writable = false,
-        //         };
-        //     }
-        // }
     }
 
     log_fatal("Mapper(CPU): Out-of-bounds: "HEX_U16, address);
     UNREACHABLE();
 }
 
+static u8 mapper_nrom_cpu_read(Mapper* mapper, u16 address) {
+    return *mapper_nrom_cpu_helper(mapper, address).memory;
+}
+
+static void mapper_nrom_cpu_write(Mapper* mapper, u16 address, u8 value) {
+    MappedMemory mapped = mapper_nrom_cpu_helper(mapper, address);
+    if (mapped.writable) {
+        *mapped.memory = value;
+    }
+}
+
 // https://www.nesdev.org/wiki/NROM
-static MappedMemory mapper_nrom_ppu_cb(Mapper* mapper, u16 address) {
+static MappedMemory mapper_nrom_ppu_helper(Mapper* mapper, u16 address) {
     if (address < 0x2000) {
         if (mapper->chr_rom_size > 0) {
             assert(mapper->chr_rom_size == kib(8));
@@ -73,26 +90,80 @@ static MappedMemory mapper_nrom_ppu_cb(Mapper* mapper, u16 address) {
             };
         }
     } else if (address >= 0x2000 && address < 0x4000) {
-        // https://www.nesdev.org/wiki/PPU_memory_map
-        // Vert 0 => $2000 $2000 $2800 $2800
-        // Hori 1 => $2000 $2400 $2000 $2400
-
-        // NOTE: Don't ask me how I came up with this bit magic. It took me half an
-        // hour at midnight to come up with this one-liner instead of like two
-        // if statements.
-        address &= ~(0x800 >> !mapper->nametable_layout);
-        address &= 0xFFF;
-
-        return (MappedMemory) {
-            .memory = &mapper->vram[address],
-            .writable = true,
-        };
+        return mapper_util_vram(mapper, address);
     }
 
     // NOTE: Palette mapping is handled internally in the PPU.
 
     log_fatal("Mapper(PPU): Out-of-bounds: "HEX_U16, address);
     UNREACHABLE();
+}
+
+static u8 mapper_nrom_ppu_read(Mapper* mapper, u16 address) {
+    return *mapper_nrom_ppu_helper(mapper, address).memory;
+}
+
+static void mapper_nrom_ppu_write(Mapper* mapper, u16 address, u8 value) {
+    MappedMemory mapped = mapper_nrom_ppu_helper(mapper, address);
+    if (mapped.writable) {
+        *mapped.memory = value;
+    }
+}
+
+// https://www.nesdev.org/wiki/MMC1
+static u8 mapper_mmc1_cpu_read(Mapper* mapper, u16 address) {
+    assert(mapper->submapper == 5);
+
+    if (address >= 0x6000 && address < 0x8000) {
+        // TODO: Optional PRG-RAM
+        UNREACHABLE();
+    } else if (address >= 0x8000) {
+        return mapper->prg_rom[address - 0x8000];
+    }
+
+    log_fatal("Mapper(CPU): Out-of-bounds: "HEX_U16, address);
+    UNREACHABLE();
+}
+
+static void mapper_mmc1_cpu_write(Mapper* mapper, u16 address, u8 value) {
+    assert(mapper->submapper == 5);
+
+    // TODO: Write interface
+
+    log_fatal("Mapper(CPU): Out-of-bounds: "HEX_U16, address);
+    UNREACHABLE();
+}
+
+static MappedMemory mapper_mmc1_ppu_helper(Mapper* mapper, u16 address) {
+    assert(mapper->submapper == 5);
+
+    if (address < 0x1000) {
+        return (MappedMemory) {
+            .memory = &mapper->chr_rom_bank0[address],
+            .writable = false,
+        };
+    } else if (address >= 0x1000 && address < 0x2000) {
+        return (MappedMemory) {
+            .memory = &mapper->chr_rom_bank1[address - 0x1000],
+            .writable = false,
+        };
+    } else if (address >= 0x2000 && address < 0x4000) {
+        return mapper_util_vram(mapper, address);
+    }
+
+    log_fatal("Mapper(PPU): Out-of-bounds: "HEX_U16, address);
+    UNREACHABLE();
+}
+
+static u8 mapper_mmc1_ppu_read(Mapper* mapper, u16 address) {
+    return *mapper_mmc1_ppu_helper(mapper, address).memory;
+}
+
+static void mapper_mmc1_ppu_write(Mapper* mapper, u16 address, u8 value) {
+    MappedMemory mapped = mapper_mmc1_ppu_helper(mapper, address);
+    if (mapped.writable) {
+        *mapped.memory = value;
+    }
 }
 
 static Mapper mapper_build(NesRom* rom) {
@@ -118,8 +189,21 @@ static Mapper mapper_build(NesRom* rom) {
     switch (mapper.id) {
         // NROM
         case 0:
-            mapper.cpu_cb = mapper_nrom_cpu_cb;
-            mapper.ppu_cb = mapper_nrom_ppu_cb;
+            mapper.cb = (MapperCallbacks) {
+                .cpu_read  = mapper_nrom_cpu_read,
+                .cpu_write = mapper_nrom_cpu_write,
+                .ppu_read  = mapper_nrom_ppu_read,
+                .ppu_write = mapper_nrom_ppu_write,
+            };
+            break;
+        // MMC1
+        case 1:
+            mapper.cb = (MapperCallbacks) {
+                .cpu_read  = mapper_mmc1_cpu_read,
+                .cpu_write = mapper_mmc1_cpu_write,
+                .ppu_read  = mapper_mmc1_ppu_read,
+                .ppu_write = mapper_mmc1_ppu_write,
+            };
             break;
         default:
             log_fatal("Unsupported mapper: mapper %u, submapper %u", mapper.id, mapper.submapper);

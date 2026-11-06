@@ -22,13 +22,17 @@ static const char* const NES_ROM_VARIATION_STRING[NES_ROM_VARIATION__COUNT] = {
     "Unknown", "archac iNES", "iNES 0.7", "iNES", "NES 2.0",
 };
 
-typedef struct MappedMemory MappedMemory;
-struct MappedMemory {
-    u8* memory;
-    b8 writable;
+typedef struct Mapper Mapper;
+
+typedef struct MapperCallbacks  MapperCallbacks ;
+struct MapperCallbacks {
+    u8 (*cpu_read)(Mapper* mapper, u16 address);
+    void (*cpu_write)(Mapper* mapper, u16 address, u8 value);
+
+    u8 (*ppu_read)(Mapper* mapper, u16 address);
+    void (*ppu_write)(Mapper* mapper, u16 address, u8 value);
 };
 
-typedef struct Mapper Mapper;
 struct Mapper {
     u16 id;
     u8 submapper;
@@ -58,8 +62,9 @@ struct Mapper {
 
     const u8* trainer;
 
-    MappedMemory (*cpu_cb)(Mapper* mapper, u16 address);
-    MappedMemory (*ppu_cb)(Mapper* mapper, u16 address);
+    MapperCallbacks cb;
+    u8* chr_rom_bank0;
+    u8* chr_rom_bank1;
 };
 
 typedef struct NesRom NesRom;
