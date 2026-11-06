@@ -138,17 +138,31 @@ extern PpuDot ppu_step(Ppu* ppu);
 extern void ppu_load_palette(Ppu* ppu, const u8* palette, u32 palette_size);
 extern Color ppu_decode_color(const Ppu* ppu, u8 color);
 
-// Memory mapped operations
-extern void ppu_ctrl(Ppu* ppu, u8 value);
-extern void ppu_mask(Ppu* ppu, u8 value);
-extern u8   ppu_status(Ppu* ppu);
-extern void ppu_oam_address(Ppu* ppu, u8 value);
-extern u8   ppu_oam_data_read(Ppu* ppu);
-extern void ppu_oam_data_write(Ppu* ppu, u8 value);
-extern void ppu_scroll(Ppu* ppu, u8 value);
-extern void ppu_address(Ppu* ppu, u8 value);
-extern u8   ppu_data_read(Ppu* ppu);
-extern void ppu_data_write(Ppu* ppu, u8 value);
-extern void ppu_oam_dma(Ppu* ppu, u8 value);
+typedef enum PpuMmioRegister {
+    PPU_MMIO_CTRL,
+    PPU_MMIO_MASK,
+    PPU_MMIO_STATUS,
+    PPU_MMIO_OAM_ADDR,
+    PPU_MMIO_OAM_DATA,
+    PPU_MMIO_SCROLL,
+    PPU_MMIO_ADDR,
+    PPU_MMIO_DATA,
+
+    PPU_MMIO__COUNT,
+} PpuMmioRegister;
+
+static const char* const PPU_MMIO_REGISTER_STRING[PPU_MMIO__COUNT] = {
+    "PPUCTRL",
+    "PPUMASK",
+    "PPUSTATUS",
+    "PPUOAM_ADDR",
+    "PPUOAM_DATA",
+    "PPUSCROLL",
+    "PPUADDR",
+    "PPUDATA",
+};
+
+extern u8 ppu_mmio_read(Ppu* ppu, PpuMmioRegister reg);
+extern void ppu_mmio_write(Ppu* ppu, PpuMmioRegister reg, u8 value);
 
 #endif // PPU_H

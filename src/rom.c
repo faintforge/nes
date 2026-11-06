@@ -14,7 +14,13 @@
 // https://www.nesdev.org/wiki/NROM
 static MappedMemory mapper_nrom_cpu_cb(Mapper* mapper, u16 address) {
     if (address >= 0x6000 && address < 0x8000) {
-        UNREACHABLE();
+        // TODO: This is supposed to be open bus behavior
+        // https://www.nesdev.org/wiki/Open_bus_behavior#CPU_open_bus
+        static u8 dummy = 0xEA;
+        return (MappedMemory) {
+            &dummy,
+            .writable = false,
+        };
     } else if (address >= 0x8000) {
         u16 index = address - 0x8000;
         if (mapper->prg_rom_size == kib(16)) {
@@ -81,8 +87,6 @@ static MappedMemory mapper_nrom_ppu_cb(Mapper* mapper, u16 address) {
             .memory = &mapper->vram[address],
             .writable = true,
         };
-    } else if (address >= 0x3000 && address < 0x4000) {
-        return mapper_nrom_ppu_cb(mapper, address - 0x1000);
     }
 
     // NOTE: Palette mapping is handled internally in the PPU.

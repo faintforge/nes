@@ -1,6 +1,6 @@
 CC := gcc
 SRC := $(wildcard src/*.c)
-CFLAGS := -ggdb -Wall -Wextra -Og
+CFLAGS := -ggdb -Wall -Wextra
 IFLAGS := -Iinclude -Ilibs/glad/include
 LFLAGS := -lm -lSDL3
 
@@ -13,7 +13,7 @@ all: tools build asm
 .PHONY: tools
 tools:
 	$(CC) $(CFLAGS) tools/opcode_table_generator.c -o bin/opcode-table-generator $(IFLAGS)
-	$(CC) $(CFLAGS) src/cpu.c tools/6502_klaus_dormann_tests.c -o bin/6502-klaus-dormann-tests $(IFLAGS)
+	$(CC) $(CFLAGS) src/cpu.c src/log.c tools/6502_klaus_dormann_tests.c -o bin/6502-klaus-dormann-tests $(IFLAGS)
 
 .PHONY: build
 build: tools libs/libs.o

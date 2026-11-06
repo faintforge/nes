@@ -2,6 +2,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include "nes/log.h"
 
 // Taken from https://www.nesdev.org/wiki/File:2C02G_U_wiki.pal
 static const Color DEFAULT_PALETTE[512] = {
@@ -153,13 +154,13 @@ Ppu ppu_init(MemoryBus bus) {
     memcpy(&ppu.palette, DEFAULT_PALETTE, sizeof(DEFAULT_PALETTE));
     ppu.palette_has_emph = true;
 
-    ppu_ctrl(&ppu, 0x00);
-    ppu_mask(&ppu, 0x00);
-    ppu_oam_address(&ppu, 0x00);
-    ppu_scroll(&ppu, 0x00);
-    ppu_scroll(&ppu, 0x00);
-    ppu_address(&ppu, 0x00);
-    ppu_address(&ppu, 0x00);
+    ppu_mmio_write(&ppu, PPU_MMIO_CTRL,     0x00);
+    ppu_mmio_write(&ppu, PPU_MMIO_MASK,     0x00);
+    ppu_mmio_write(&ppu, PPU_MMIO_OAM_ADDR, 0x00);
+    ppu_mmio_write(&ppu, PPU_MMIO_SCROLL,   0x00);
+    ppu_mmio_write(&ppu, PPU_MMIO_SCROLL,   0x00);
+    ppu_mmio_write(&ppu, PPU_MMIO_ADDR,     0x00);
+    ppu_mmio_write(&ppu, PPU_MMIO_ADDR,     0x00);
 
     return ppu;
 }
@@ -202,6 +203,7 @@ static void ppu__inc_vert(Ppu* ppu) {
         ppu->v = clear_bits(ppu->v, 5, 9);
         ppu->v |= y << 5;
     }
+    ppu->v &= 0x7FFF;
 }
 
 static void ppu__shifter_push8(Ppu* ppu) {
@@ -668,7 +670,7 @@ Color ppu_decode_color(const Ppu* ppu, u8 color) {
     return result;
 }
 
-void ppu_ctrl(Ppu* ppu, u8 value) {
+static void ppu__mmio_write_ctrl(Ppu* ppu, u8 value) {
     // [Reference](https://www.nesdev.org/wiki/PPU_registers#PPUCTRL)
     // Bitmask 00001100_00000000 = 0x0C00
     ppu->t &= ~0x0C00;
@@ -682,17 +684,19 @@ void ppu_ctrl(Ppu* ppu, u8 value) {
     ppu->background_pattern_address = 0x1000 * get_bit(value, 4);
     ppu->sprite_size = get_bit(value, 5);
     if (get_bit(value, 6)) {
-        fprintf(stderr, "ERR: %s master/slave select bit set!", __func__);
-        UNREACHABLE();
+        log_warn("%s master/slave select bit set!", __func__);
+        // UNREACHABLE();
     }
     ppu->vblank_nmi_enabled = get_bit(value, 7);
 }
 
-void ppu_mask(Ppu* ppu, u8 value) {
+static void ppu__mmio_write_mask(Ppu* ppu, u8 value) {
     ppu->mask = *(PpuMask*) &value;
 }
 
-u8 ppu_status(Ppu* ppu) {
+static u8 ppu__mmio_read_status(Ppu* ppu) {
+    // 1110 0000 = $E0
+    ppu->io_bus &= ~0xE0;
     ppu->io_bus |= ppu->sprite_overflow_flag << 5;
     ppu->io_bus |= ppu->sprite0_hit_flag << 6;
     ppu->io_bus |= ppu->vblank_flag << 7;
@@ -703,22 +707,23 @@ u8 ppu_status(Ppu* ppu) {
     return ppu->io_bus;
 }
 
-void ppu_oam_address(Ppu* ppu, u8 value) {
+static void ppu__mmio_write_oam_address(Ppu* ppu, u8 value) {
     ppu->oam_addr = value;
 }
 
-u8 ppu_oam_data_read(Ppu* ppu) {
+static u8 ppu__mmio_read_oam_data(Ppu* ppu) {
     u8* oam_memory = (u8*) ppu->primary_oam;
-    return oam_memory[ppu->oam_addr];
+    ppu->io_bus = oam_memory[ppu->oam_addr];
+    return ppu->io_bus;
 }
 
-void ppu_oam_data_write(Ppu* ppu, u8 value) {
+static void ppu__mmio_write_oam_data(Ppu* ppu, u8 value) {
     u8* oam_memory = (u8*) ppu->primary_oam;
     oam_memory[ppu->oam_addr] = value;
     ppu->oam_addr++;
 }
 
-void ppu_scroll(Ppu* ppu, u8 value) {
+static void ppu__mmio_write_scroll(Ppu* ppu, u8 value) {
     u16 fine = value & 7;
     u16 coarse = value >> 3;
     if (ppu->w == 0) {
@@ -738,7 +743,7 @@ void ppu_scroll(Ppu* ppu, u8 value) {
     ppu->w = !ppu->w;
 }
 
-void ppu_address(Ppu* ppu, u8 value) {
+static void ppu__mmio_write_address(Ppu* ppu, u8 value) {
     if (ppu->w == 0) {
         // Clear high bits
         ppu->t &= 0x00FF;
@@ -746,6 +751,7 @@ void ppu_address(Ppu* ppu, u8 value) {
     } else {
         ppu->t &= 0xFF00;
         ppu->t |= value;
+        ppu->t &= 0x3FFF;
         // log_debug("%d:%d: Old address: $%04X (%d)", ppu->scanline, ppu->dot, ppu->v, ppu->v & 0x1F);
         ppu->v = ppu->t;
         // log_debug("%d:%d: New address: $%04X (%d)", ppu->scanline, ppu->dot, ppu->v, ppu->v & 0x1F);
@@ -755,14 +761,14 @@ void ppu_address(Ppu* ppu, u8 value) {
     ppu->w = !ppu->w;
 }
 
-u8 ppu_data_read(Ppu* ppu) {
-    u8 result = ppu->read_data_latch;
+static u8 ppu__mmio_read_data(Ppu* ppu) {
+    ppu->io_bus = ppu->read_data_latch;
     ppu->read_data_latch = ppu->bus.read(&ppu->bus, ppu->v);
 
     // if (ppu->v >= 0x3F00 && ppu->v < 0x3F20) {
     if (ppu->v >= 0x3F00 && ppu->v < 0x4000) {
         u8 index = ppu->v & 0x1F;
-        result = ppu->palette_indices[index];
+        ppu->io_bus = ppu->palette_indices[index];
     }
 
     switch (ppu->vram_increment) {
@@ -776,10 +782,10 @@ u8 ppu_data_read(Ppu* ppu) {
             UNREACHABLE();
     }
     ppu->v &= 0x7FFF;
-    return result;
+    return ppu->io_bus;
 }
 
-void ppu_data_write(Ppu* ppu, u8 value) {
+static void ppu__mmio_write_data(Ppu* ppu, u8 value) {
     if (ppu->v >= 0x3F00 && ppu->v < 0x4000) {
         u8 index = (ppu->v - 0x3F00) & 0x1F;
         // Palette entry 0 (transparent)
@@ -818,8 +824,36 @@ void ppu_data_write(Ppu* ppu, u8 value) {
     ppu->v &= 0x7FFF;
 }
 
-void ppu_oam_dma(Ppu* ppu, u8 value) {
-    (void) ppu;
-    (void) value;
-    UNIMPLEMENTED();
+u8 ppu_mmio_read(Ppu* ppu, PpuMmioRegister reg) {
+    // https://www.nesdev.org/wiki/PPU_registers
+    assert(reg < PPU_MMIO__COUNT);
+    switch (reg) {
+        case PPU_MMIO_CTRL:     return ppu->io_bus;
+        case PPU_MMIO_MASK:     return ppu->io_bus;
+        case PPU_MMIO_STATUS:   return ppu__mmio_read_status(ppu);
+        case PPU_MMIO_OAM_ADDR: return ppu->io_bus;
+        case PPU_MMIO_OAM_DATA: return ppu__mmio_read_oam_data(ppu);
+        case PPU_MMIO_SCROLL:   return ppu->io_bus;
+        case PPU_MMIO_ADDR:     return ppu->io_bus;
+        case PPU_MMIO_DATA:     return ppu__mmio_read_data(ppu);
+        case PPU_MMIO__COUNT:   UNREACHABLE();
+    }
+    UNREACHABLE();
+}
+
+void ppu_mmio_write(Ppu* ppu, PpuMmioRegister reg, u8 value) {
+    // https://www.nesdev.org/wiki/PPU_registers
+    assert(reg < PPU_MMIO__COUNT);
+    switch (reg) {
+        case PPU_MMIO_CTRL:     ppu__mmio_write_ctrl(ppu, value);        break;
+        case PPU_MMIO_MASK:     ppu__mmio_write_mask(ppu, value);        break;
+        case PPU_MMIO_STATUS:                                            break;
+        case PPU_MMIO_OAM_ADDR: ppu__mmio_write_oam_address(ppu, value); break;
+        case PPU_MMIO_OAM_DATA: ppu__mmio_write_oam_data(ppu, value);    break;
+        case PPU_MMIO_SCROLL:   ppu__mmio_write_scroll(ppu, value);      break;
+        case PPU_MMIO_ADDR:     ppu__mmio_write_address(ppu, value);     break;
+        case PPU_MMIO_DATA:     ppu__mmio_write_data(ppu, value);        break;
+        case PPU_MMIO__COUNT:   UNREACHABLE();
+    }
+    ppu->io_bus = value;
 }

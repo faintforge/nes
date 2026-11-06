@@ -27,7 +27,7 @@ void oam_dma_step(OamDma* dma, Cpu* cpu, Ppu* ppu) {
             break;
         case DMA_PUT:
             dma->state = DMA_GET;
-            ppu_oam_data_write(ppu, dma->data_latch);
+            ppu_mmio_write(ppu, PPU_MMIO_OAM_DATA, dma->data_latch);
             if (dma->index == 256) {
                 dma->state = DMA_IDLE;
                 cpu->rdy = 0;

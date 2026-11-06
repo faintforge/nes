@@ -31,49 +31,16 @@ struct Machine {
     InputDevice input;
 };
 
-u8 mem_ppu_read(MemoryBus* bus, u16 address) {
-    Machine* machine = bus->ctx;
-    Mapper* mapper = &machine->rom.mapper;
-    return *mapper->ppu_cb(mapper, address).memory;
-}
-
-void mem_ppu_write(MemoryBus* bus, u16 address, u8 value) {
-    Machine* machine = bus->ctx;
-    Mapper* mapper = &machine->rom.mapper;
-    MappedMemory mapped = mapper->ppu_cb(mapper, address); 
-    if (mapped.writable) {
-        *mapped.memory = value;
-    }
-}
-
 u8 mem_cpu_read(MemoryBus* bus, u16 address) {
     Machine* machine = bus->ctx;
+    // log_debug("READ: "HEX_U16, address);
     if (address < 0x2000) {
         return machine->cpu_ram[address & 0x7FF];
     } else if (address >= 0x2000 && address < 0x4000) {
         // PPU registers
         u8 reg = address & 0x7;
         Ppu* ppu = &machine->ppu;
-        switch (reg) {
-            case 0:
-                UNREACHABLE();
-            case 1:
-                UNREACHABLE();
-            case 2:
-                return ppu_status(ppu);
-            case 3:
-                UNREACHABLE();
-            case 4:
-                return ppu_oam_data_read(ppu);
-            case 5:
-                UNREACHABLE();
-            case 6:
-                UNREACHABLE();
-            case 7:
-                return ppu_data_read(ppu);
-            default:
-                UNREACHABLE();
-        }
+        return ppu_mmio_read(ppu, reg);
     } else if (address >= 0x4000 && address < 0x4018) {
         switch (address) {
             // Controller 1
@@ -94,6 +61,7 @@ u8 mem_cpu_read(MemoryBus* bus, u16 address) {
 }
 
 void mem_cpu_write(MemoryBus* bus, u16 address, u8 value) {
+    // log_debug("WRITE: "HEX_U16, address);
     Machine* machine = bus->ctx;
     if (address < 0x2000) {
         machine->cpu_ram[address & 0x7FF] = value;
@@ -101,34 +69,7 @@ void mem_cpu_write(MemoryBus* bus, u16 address, u8 value) {
         // PPU registers
         u8 reg = address & 0x7;
         Ppu* ppu = &machine->ppu;
-        switch (reg) {
-            case 0:
-                ppu_ctrl(ppu, value);
-                break;
-            case 1:
-                ppu_mask(ppu, value);
-                break;
-            case 2:
-                // TODO: Idk man
-                UNREACHABLE();
-            case 3:
-                ppu_oam_address(ppu, value);
-                break;
-            case 4:
-                ppu_oam_data_write(ppu, value);
-                break;
-            case 5:
-                ppu_scroll(ppu, value);
-                break;
-            case 6:
-                ppu_address(ppu, value);
-                break;
-            case 7:
-                ppu_data_write(ppu, value);
-                break;
-            default:
-                UNREACHABLE();
-        }
+        ppu_mmio_write(ppu, reg, value);
     } else if (address >= 0x4000 && address < 0x4018) {
         switch (address) {
             case 0x4014:
@@ -150,6 +91,21 @@ void mem_cpu_write(MemoryBus* bus, u16 address, u8 value) {
     }
 }
 
+u8 mem_ppu_read(MemoryBus* bus, u16 address) {
+    Machine* machine = bus->ctx;
+    Mapper* mapper = &machine->rom.mapper;
+    return *mapper->ppu_cb(mapper, address).memory;
+}
+
+void mem_ppu_write(MemoryBus* bus, u16 address, u8 value) {
+    Machine* machine = bus->ctx;
+    Mapper* mapper = &machine->rom.mapper;
+    MappedMemory mapped = mapper->ppu_cb(mapper, address);
+    if (mapped.writable) {
+        *mapped.memory = value;
+    }
+}
+
 void print_bits(const void* data, u32 byte_count) {
     for (u32 i = 0; i < byte_count; i++) {
         u8 value = ((const u8*) data)[(byte_count-1) - i];
@@ -163,53 +119,6 @@ void print_bits(const void* data, u32 byte_count) {
     printf("\n");
 }
 
-// u16 step_instruction(Machine* machine) {
-//     Cpu* cpu = &machine->cpu;
-//     assert(cpu->t == 0);
-//
-//     u16 start_address = cpu->pc;
-//
-//     printf("$%04X:    %s", cpu->pc, OPCODE_STRING_TABLE[*mem_cpu_helper(machine, cpu->pc)]);
-//     switch (cpu->interrupt_type) {
-//         case NONE:
-//             break;
-//         case NMI:
-//             printf(" (NMI)");
-//             break;
-//         case RESET:
-//             printf(" (RESET)");
-//             break;
-//         case IRQ:
-//             printf(" (IRQ)");
-//             break;
-//         case BRK:
-//             printf(" (BRK)");
-//             break;
-//         default:
-//             UNREACHABLE();
-//     }
-//     printf("\n");
-//
-//     cpu_step(cpu);
-//     while (cpu->t != 0) {
-//         u8 curr_t = cpu->t;
-//         cpu_step(cpu);
-//         if (curr_t == cpu->t) {
-//             exit(1);
-//         }
-//     }
-//
-//     print_cpu_status(cpu->p);
-//     printf("p = %d (0x%02X)\n", cpu->p, cpu->p);
-//     printf("a = %d (0x%02X)\n", cpu->a, cpu->a);
-//     printf("x = %d (0x%02X)\n", cpu->x, cpu->x);
-//     printf("s = %d (0x%02X)\n", cpu->s, cpu->s);
-//     printf("\n");
-//
-//     return start_address;
-// }
-
-
 i32 main(void) {
     logger_register_callback(log_stdout_callback, NULL);
 
@@ -221,13 +130,17 @@ i32 main(void) {
     Machine machine = {
         // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
+        .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
 
-        // .rom = load_nes_rom_from_file("nes_roms/color_test.nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/full_nes_palette.nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/palette.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/color_test.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/full_nes_palette.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/palette.nes"),
         // .rom = load_nes_rom_from_file("asm/external/out/blargg_full_nes_palette.nes"),
-        .rom = load_nes_rom_from_file("nes_roms/cpu_timing_test.nes"),
+
+        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_timing_test.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_reads.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_writes_oam.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_writes_ppumem.nes"),
 
         .input = input_device_keyboard(),
     };
@@ -241,8 +154,6 @@ i32 main(void) {
         });
     Cpu* cpu = &machine.cpu;
     cpu->disable_decimal_mode = true;
-
-    // cpu->bus.read(&cpu->bus, 0x8E3E);
 
     machine.ppu = ppu_init((MemoryBus) {
             .ctx = &machine,
@@ -266,49 +177,6 @@ i32 main(void) {
     SDL_Texture* output = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STREAMING, PICTURE_WIDTH, PICTURE_HEIGHT);
     SDL_SetTextureScaleMode(output, SDL_SCALEMODE_PIXELART);
 
-    // // Tiles in pattern table = 16*16
-    // // Tile size = 8*8 pixels
-    // #define TILE_SIZE 8
-    // #define PATTERN_SIZE 16
-    // SDL_Texture* pattern_table0 = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGBA32, SDL_TEXTUREACCESS_STATIC, PATTERN_SIZE*TILE_SIZE, PATTERN_SIZE*TILE_SIZE);
-    // u8 pixels[PATTERN_SIZE*PATTERN_SIZE * TILE_SIZE*TILE_SIZE * 4] = {0};
-    // const u8* pattern_data = machine.rom.chr_rom;
-    // for (u32 tile_y = 0; tile_y < PATTERN_SIZE; tile_y++) {
-    //     for (u32 tile_x = 0; tile_x < PATTERN_SIZE; tile_x++) {
-    //         u32 tile_idx = (tile_y << 4) | tile_x;
-    //         for (u32 py = 0; py < 8; py++) {
-    //             u8 plane0 = pattern_data[0x0000 + tile_idx*16 + py];
-    //             u8 plane1 = pattern_data[0x0000 + tile_idx*16 + 8 + py];
-    //             for (u32 px = 0; px < 8; px++) {
-    //                 u8 color = get_bit(plane0, 7-px) | (get_bit(plane1, 7-px) << 1);
-    //                 color = (u8[]) {
-    //                     0,
-    //                     64,
-    //                     128,
-    //                     255,
-    //                 }[color];
-    //
-    //                 u32 x = tile_x*TILE_SIZE + px;
-    //                 u32 y = tile_y*TILE_SIZE + py;
-    //                 u32 pixel_idx = x + y*PATTERN_SIZE*TILE_SIZE;
-    //
-    //                 pixels[pixel_idx*4 + 0] = color;
-    //                 pixels[pixel_idx*4 + 1] = color;
-    //                 pixels[pixel_idx*4 + 2] = color;
-    //                 pixels[pixel_idx*4 + 3] = 0xFF;
-    //             }
-    //         }
-    //     }
-    // }
-    //
-    // SDL_UpdateTexture(pattern_table0, &(SDL_Rect) {
-    //         .x = 0,
-    //         .y = 0,
-    //         .w = 16*8,
-    //         .h = 16*8,
-    //     }, pixels, 16*8*4);
-    // SDL_SetTextureScaleMode(pattern_table0, SDL_SCALEMODE_PIXELART);
-
     b8 running = true;
     b8 integer_scaling = false;
 
@@ -329,7 +197,6 @@ i32 main(void) {
         while (clock_timer >= 1.0e9 / clock_hz) {
             if (tick % 12 == 0) {
                 machine.input.update(&machine.input);
-                // assert((cpu->p & CPU_FLAG_DECIMAL) == 0);
                 cpu_step(cpu);
                 oam_dma_step(&machine.oam_dma, cpu, ppu);
             }
