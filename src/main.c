@@ -119,6 +119,8 @@ void print_bits(const void* data, u32 byte_count) {
     printf("\n");
 }
 
+f32 timestamp(void) { return SDL_GetTicks() / 1e-3f; }
+
 i32 main(void) {
     logger_register_callback(log_stdout_callback, NULL);
 
@@ -130,12 +132,13 @@ i32 main(void) {
     Machine machine = {
         // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
-        .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
 
         // .rom = load_nes_rom_from_file("nes_roms/tests/color_test.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/full_nes_palette.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/palette.nes"),
         // .rom = load_nes_rom_from_file("asm/external/out/blargg_full_nes_palette.nes"),
+        .rom = load_nes_rom_from_file("nes_roms/tests/ppu_open_bus.nes"),
 
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_timing_test.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_reads.nes"),
@@ -155,7 +158,7 @@ i32 main(void) {
     Cpu* cpu = &machine.cpu;
     cpu->disable_decimal_mode = true;
 
-    machine.ppu = ppu_init((MemoryBus) {
+    machine.ppu = ppu_init(timestamp, (MemoryBus) {
             .ctx = &machine,
             .read = mem_ppu_read,
             .write = mem_ppu_write,
@@ -182,7 +185,6 @@ i32 main(void) {
 
     b8 is_dirty = true;
     u32 pixel_idx = 0;
-
     u64 clock_hz = 21441960;
     u64 clock_timer = 0;
     u64 tick = 0;

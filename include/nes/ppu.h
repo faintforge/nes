@@ -52,13 +52,19 @@ struct PpuShifterCarry {
     u8 palette_high : 1;
 };
 
+typedef f32 (*PpuTimestampFunc)(void);  
+
 typedef struct Ppu Ppu;
 struct Ppu {
     MemoryBus bus;
+    PpuTimestampFunc timestamp_cb;
     u16 address_bus;
     u8 vram_bus;
-    u8 io_bus;
     u8 read_data_latch;
+
+    u8 io_bus;
+    f32 io_bus_last_write;
+    u8 io_bus_decay_index;
 
     Color palette[512];
     b8 palette_has_emph;
@@ -129,7 +135,7 @@ struct PpuDot {
     u16 y;
 };
 
-extern Ppu ppu_init(MemoryBus bus);
+extern Ppu ppu_init(PpuTimestampFunc timestamp_cb, MemoryBus bus);
 extern PpuDot ppu_step(Ppu* ppu);
 
 // Reads .pal formatted data. Expects 'palette' to be filled with 3-byte long

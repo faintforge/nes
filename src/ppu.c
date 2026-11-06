@@ -143,9 +143,10 @@ static const Color DEFAULT_PALETTE[512] = {
     {0x75, 0xA5, 0xA7}, {0x78, 0x78, 0x78}, {0x00, 0x00, 0x00}, {0x00, 0x00, 0x00},
 };
 
-Ppu ppu_init(MemoryBus bus) {
+Ppu ppu_init(PpuTimestampFunc timestamp_cb, MemoryBus bus) {
     Ppu ppu = {
         .bus = bus,
+        .timestamp_cb = timestamp_cb,
         .scanline = -1,
         .ppu_address_delay = -1,
         .sprite_eval_state = 1,
@@ -453,6 +454,16 @@ PpuDot ppu_step(Ppu* ppu) {
     // TODO: Factor out a bunch of stuff. This is a mess of a function. And the
     // Ppu struct should be broken up into smaller components too.
 
+    // Open bus decay
+    // https://www.nesdev.org/wiki/PPU_registers#MMIO_registers
+    f32 io_bus_decay_time = 8 * 0.005f;
+    if (ppu->timestamp_cb() - ppu->io_bus_last_write > io_bus_decay_time) {
+        // ppu->io_bus &= ~(1 << ppu->io_bus_decay_index);
+        // ppu->io_bus_decay_index = (ppu->io_bus_decay_index + 1) & 0x7;
+        ppu->io_bus_last_write = ppu->timestamp_cb();
+        ppu->io_bus = 0;
+    }
+
     if (ppu->ppu_address_delay == 0) {
         ppu->ppu_address_delay = -1;
         ppu->v = ppu->t;
@@ -704,6 +715,7 @@ static u8 ppu__mmio_read_status(Ppu* ppu) {
     ppu->w = 0;
     ppu->vblank_flag = 0;
 
+    ppu->io_bus_last_write = ppu->timestamp_cb();
     return ppu->io_bus;
 }
 
@@ -714,6 +726,11 @@ static void ppu__mmio_write_oam_address(Ppu* ppu, u8 value) {
 static u8 ppu__mmio_read_oam_data(Ppu* ppu) {
     u8* oam_memory = (u8*) ppu->primary_oam;
     ppu->io_bus = oam_memory[ppu->oam_addr];
+    ppu->io_bus_last_write = ppu->timestamp_cb();
+    // Byte 2
+    if ((ppu->oam_addr & 0x3) == 2) {
+        ppu->io_bus &= 0xE3;
+    }
     return ppu->io_bus;
 }
 
@@ -762,14 +779,17 @@ static void ppu__mmio_write_address(Ppu* ppu, u8 value) {
 }
 
 static u8 ppu__mmio_read_data(Ppu* ppu) {
-    ppu->io_bus = ppu->read_data_latch;
-    ppu->read_data_latch = ppu->bus.read(&ppu->bus, ppu->v);
-
     // if (ppu->v >= 0x3F00 && ppu->v < 0x3F20) {
     if (ppu->v >= 0x3F00 && ppu->v < 0x4000) {
         u8 index = ppu->v & 0x1F;
-        ppu->io_bus = ppu->palette_indices[index];
+        // 1100 0000 = 0xC0
+        ppu->io_bus &= 0xC0;
+        ppu->io_bus |= ppu->palette_indices[index] & 0x1F;
+    } else {
+        ppu->io_bus = ppu->read_data_latch;
     }
+    ppu->read_data_latch = ppu->bus.read(&ppu->bus, ppu->v);
+    ppu->io_bus_last_write = ppu->timestamp_cb();
 
     switch (ppu->vram_increment) {
         case VRAM_INCREMENT_ACROSS:
@@ -828,17 +848,17 @@ u8 ppu_mmio_read(Ppu* ppu, PpuMmioRegister reg) {
     // https://www.nesdev.org/wiki/PPU_registers
     assert(reg < PPU_MMIO__COUNT);
     switch (reg) {
-        case PPU_MMIO_CTRL:     return ppu->io_bus;
-        case PPU_MMIO_MASK:     return ppu->io_bus;
-        case PPU_MMIO_STATUS:   return ppu__mmio_read_status(ppu);
-        case PPU_MMIO_OAM_ADDR: return ppu->io_bus;
-        case PPU_MMIO_OAM_DATA: return ppu__mmio_read_oam_data(ppu);
-        case PPU_MMIO_SCROLL:   return ppu->io_bus;
-        case PPU_MMIO_ADDR:     return ppu->io_bus;
-        case PPU_MMIO_DATA:     return ppu__mmio_read_data(ppu);
-        case PPU_MMIO__COUNT:   UNREACHABLE();
+        case PPU_MMIO_CTRL: break;
+        case PPU_MMIO_MASK: break;
+        case PPU_MMIO_STATUS: ppu__mmio_read_status(ppu); break;
+        case PPU_MMIO_OAM_ADDR: break;
+        case PPU_MMIO_OAM_DATA: ppu__mmio_read_oam_data(ppu); break;
+        case PPU_MMIO_SCROLL: break;
+        case PPU_MMIO_ADDR: break;
+        case PPU_MMIO_DATA: ppu__mmio_read_data(ppu); break;
+        case PPU_MMIO__COUNT: UNREACHABLE();
     }
-    UNREACHABLE();
+    return ppu->io_bus;
 }
 
 void ppu_mmio_write(Ppu* ppu, PpuMmioRegister reg, u8 value) {
@@ -856,4 +876,5 @@ void ppu_mmio_write(Ppu* ppu, PpuMmioRegister reg, u8 value) {
         case PPU_MMIO__COUNT:   UNREACHABLE();
     }
     ppu->io_bus = value;
+    ppu->io_bus_last_write = ppu->timestamp_cb();
 }
