@@ -234,10 +234,15 @@ static void ppu__shifter_push8(Ppu* ppu) {
 }
 
 static void ppu__shifter_pull(Ppu* ppu) {
-    ppu->last_shifted.plane_low = ppu->shifter_plane_low & 0x1;
-    ppu->last_shifted.plane_high = ppu->shifter_plane_high & 0x1;
-    ppu->last_shifted.palette_low = ppu->shifter_palette_low & 0x1;
-    ppu->last_shifted.palette_high = ppu->shifter_palette_high & 0x1;
+    // ppu->last_shifted.plane_low = ppu->shifter_plane_low & 0x1;
+    // ppu->last_shifted.plane_high = ppu->shifter_plane_high & 0x1;
+    // ppu->last_shifted.palette_low = ppu->shifter_palette_low & 0x1;
+    // ppu->last_shifted.palette_high = ppu->shifter_palette_high & 0x1;
+
+    ppu->last_shifted.plane_low = (ppu->shifter_plane_low >> 1*ppu->fine_x) & 0x1;
+    ppu->last_shifted.plane_high = (ppu->shifter_plane_high >> 1*ppu->fine_x) & 0x1;
+    ppu->last_shifted.palette_low = (ppu->shifter_palette_low >> 1*ppu->fine_x) & 0x1;
+    ppu->last_shifted.palette_high = (ppu->shifter_palette_high >> 1*ppu->fine_x) & 0x1;
 
     ppu->shifter_plane_low >>= 1;
     ppu->shifter_plane_high >>= 1;
@@ -537,10 +542,12 @@ PpuDot ppu_step(Ppu* ppu) {
                     if (x >= sprite.x && x < sprite.x+8) {
                         u32 sprite_x = x - sprite.x;
                         i32 sprite_y = ppu->scanline - sprite.y;
+                        // Flip vertically
+                        u8 plane_y = get_bit(sprite.attrib, 7) == 1 ? 7-sprite_y : sprite_y;
 
                         u16 pattern_addr_base = ppu->sprite_pattern_table_address;
                         pattern_addr_base |= sprite.tile_index << 4;
-                        pattern_addr_base |= sprite_y;
+                        pattern_addr_base |= plane_y;
 
                         // Flip horizontally
                         u8 plane_x = get_bit(sprite.attrib, 6) == 0 ? 7-sprite_x : sprite_x;
@@ -564,7 +571,6 @@ PpuDot ppu_step(Ppu* ppu) {
                     }
                 }
 
-                assert(ppu->fine_x == 0);
                 PpuShifterCarry c = ppu->last_shifted;
                 u8 tile_palette_entry = c.plane_low | (c.plane_high << 1);
                 u8 tile_palette = c.palette_low | (c.palette_high << 1);

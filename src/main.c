@@ -125,17 +125,20 @@ i32 main(void) {
     //
     Machine machine = {
         // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
-        .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
+        .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
 
         // .rom = load_nes_rom_from_file("nes_roms/tests/color_test.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/full_nes_palette.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/palette.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/demo_ntsc.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/ppu_vbl_nmi.nes"), // Needs unofficial opcodes
+
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_overflow/3.Timing.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_overflow/5.Emulator.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/02.alignment.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/03.corners.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/04.flip.nes"),
 
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_reads.nes"), // Needs mapper 3.0
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_writes_oam.nes"), // Needs unofficial opcodes
