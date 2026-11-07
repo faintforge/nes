@@ -1,6 +1,6 @@
 CC := gcc
 SRC := $(wildcard src/*.c)
-CFLAGS := -ggdb -Wall -Wextra
+CFLAGS := -ggdb -Wall -Wextra -Og
 IFLAGS := -Iinclude -Ilibs/glad/include
 LFLAGS := -lm -lSDL3
 

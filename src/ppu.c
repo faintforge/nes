@@ -364,8 +364,6 @@ static void ppu__sprite_eval(Ppu* ppu) {
         ppu->secondary_oam[ppu->secondary_oam_index][ppu->oam_copy_idx] = ppu->oam_data_latch;
     }
 
-    i16 next_scanline = ppu->scanline + 1;
-    if (next_scanline == 240) { next_scanline = -1; };
     u8 sprite_height = ppu->sprite_size == SPRITE_SIZE_8X8 ? 8 : 16;
     switch (ppu->sprite_eval_state) {
         case 1:
@@ -373,7 +371,7 @@ static void ppu__sprite_eval(Ppu* ppu) {
             // because that's when the y value was fetched.
             if (is_odd && !ppu->oam_copying_sprite) {
                 i16 y = ppu->oam_data_latch;
-                if (next_scanline >= y && next_scanline < y+sprite_height) {
+                if (ppu->scanline >= y && ppu->scanline < y+sprite_height) {
                     ppu->oam_copying_sprite = true;
                 } else {
                     ppu->sprite_eval_state = 2;
@@ -414,7 +412,7 @@ static void ppu__sprite_eval(Ppu* ppu) {
         case 3: {
             u8 y = ppu->primary_oam[ppu->primary_oam_index][ppu->oam_overflow_y_idx];
             // 3a
-            if ((next_scanline >= y && next_scanline < y+sprite_height) ||
+            if ((ppu->scanline >= y && ppu->scanline < y+sprite_height) ||
                     ppu->oam_found_overflow) {
                 ppu->sprite_overflow_flag = true;
                 ppu->oam_overflow_y_idx++;
@@ -538,10 +536,10 @@ PpuDot ppu_step(Ppu* ppu) {
                 u8 sprite_palette_entry = 0;
                 for (u32 i = 0; i < ppu->to_render_count; i++) {
                     SpriteOam sprite = ppu->to_render_oam[i];
-                    assert(is_sprite_on_scanline(ppu, sprite, ppu->scanline));
+                    assert(is_sprite_on_scanline(ppu, sprite, ppu->scanline-1));
                     if (x >= sprite.x && x < sprite.x+8) {
                         u32 sprite_x = x - sprite.x;
-                        i32 sprite_y = ppu->scanline - sprite.y;
+                        i32 sprite_y = ppu->scanline - sprite.y - 1;
                         // Flip vertically
                         u8 plane_y = get_bit(sprite.attrib, 7) == 1 ? 7-sprite_y : sprite_y;
 
@@ -854,21 +852,16 @@ static u8 ppu__mmio_read_data(Ppu* ppu) {
 static void ppu__mmio_write_data(Ppu* ppu, u8 value) {
     if (ppu->v >= 0x3F00 && ppu->v < 0x4000) {
         u8 index = (ppu->v - 0x3F00) & 0x1F;
-        // Palette entry 0 (transparent)
-        if ((index & 0x3) == 0) {
-            // Tile palette
-            ppu->palette_indices[0x00] = value;
-            ppu->palette_indices[0x04] = value;
-            ppu->palette_indices[0x08] = value;
-            ppu->palette_indices[0x0C] = value;
-            ppu->palette_indices[0x0C] = value;
 
-            // Sprite palette
-            ppu->palette_indices[0x10] = value;
-            ppu->palette_indices[0x14] = value;
-            ppu->palette_indices[0x18] = value;
-            ppu->palette_indices[0x1C] = value;
-            ppu->palette_indices[0x1C] = value;
+        // Tile palette entry 0
+        if ((index & 0x13) == 0x00) {
+            ppu->palette_indices[index] = value;
+            ppu->palette_indices[index+0x10] = value;
+        }
+        // Sprite palette entry 0
+        else if ((index & 0x13) == 0x10) {
+            ppu->palette_indices[index] = value;
+            ppu->palette_indices[index-0x10] = value;
         } else {
             ppu->palette_indices[index] = value;
         }
