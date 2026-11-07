@@ -13,6 +13,8 @@ static void input_device__keyboard_update(InputDevice* device) {
         i32 key_count = 0;
         const bool* keys = SDL_GetKeyboardState(&key_count);
 
+        device->shifter = 0;
+
         // Order described here: https://www.nesdev.org/wiki/Standard_controller
         // Right
         device->shifter |= keys[SDL_SCANCODE_RIGHT];
