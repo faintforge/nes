@@ -88,4 +88,19 @@ struct Color {
 
 extern b8 read_file(const char* filename, u8* output, u32* length);
 
+// =============================================================================
+// Slice U8
+// =============================================================================
+
+typedef struct SliceU8 SliceU8;
+struct SliceU8 {
+    u8* data;
+    u32 size;
+};
+
+extern SliceU8 slice_u8_from_parts(u8* data, u32 size);
+extern SliceU8 slice_u8_subslice(SliceU8 slice, u32 offset, u32 length);
+extern u8 slice_u8_get(SliceU8 slice, u32 index);
+extern u8* slice_u8_get_ptr(SliceU8 slice, u32 index);
+
 #endif // COMMON_H

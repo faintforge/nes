@@ -30,3 +30,36 @@ b8 read_file(const char* filename, u8* output_buffer, u32* length) {
 
     return true;
 }
+
+// =============================================================================
+// Slice U8
+// =============================================================================
+
+SliceU8 slice_u8_from_parts(u8* data, u32 size) {
+    assert(data != NULL);
+    return (SliceU8) {
+        .data = data,
+        .size = size,
+    };
+}
+
+SliceU8 slice_u8_subslice(SliceU8 slice, u32 offset, u32 length) {
+    assert(slice.data != NULL);
+    assert(slice.size >= offset + length);
+    return (SliceU8) {
+        .data = slice.data + offset,
+        .size = length,
+    };
+}
+
+u8 slice_u8_get(SliceU8 slice, u32 index) {
+    assert(slice.data != NULL);
+    assert(index < slice.size);
+    return slice.data[index];
+}
+
+u8* slice_u8_get_ptr(SliceU8 slice, u32 index) {
+    assert(slice.data != NULL);
+    assert(index < slice.size);
+    return &slice.data[index];
+}

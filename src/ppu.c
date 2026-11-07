@@ -543,6 +543,7 @@ PpuDot ppu_step(Ppu* ppu) {
                 b8 is_sprite0 = false;
                 for (u32 i = 0; i < ppu->to_render_count; i++) {
                     SpriteOam sprite = ppu->to_render_oam[i];
+                    // log_debug("%d, %d", ppu->scanline-1, sprite.y);
                     assert(is_sprite_on_scanline(ppu, sprite, ppu->scanline-1));
                     if (x >= sprite.x && x < sprite.x+8) {
                         u32 sprite_x = x - sprite.x;
@@ -632,6 +633,7 @@ PpuDot ppu_step(Ppu* ppu) {
     if (ppu->scanline == -1) {
         if (ppu->dot == 0) {
             ppu->sprite_overflow_flag = false;
+            ppu->to_render_count = 0;
         } else if (ppu->dot == 1) {
             ppu->vblank_flag = 0;
             ppu->vblank_nmi_signal = 0;

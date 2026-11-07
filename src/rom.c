@@ -58,12 +58,12 @@ static MappedMemory mapper_nrom_cpu_helper(Mapper* mapper, u16 address) {
         };
     } else if (address >= 0x8000) {
         u16 index = address - 0x8000;
-        if (mapper->prg_rom_size == kib(16)) {
+        if (mapper->prg_rom.size == kib(16)) {
             index &= 0x3FFF;
         }
 
         return (MappedMemory) {
-            .memory = &mapper->prg_rom[index],
+            .memory = slice_u8_get_ptr(mapper->prg_rom, index),
             .writable = false,
         };
     }
@@ -86,10 +86,10 @@ static void mapper_nrom_cpu_write(Mapper* mapper, u16 address, u8 value) {
 // https://www.nesdev.org/wiki/NROM
 static MappedMemory mapper_nrom_ppu_helper(Mapper* mapper, u16 address) {
     if (address < 0x2000) {
-        if (mapper->chr_rom_size > 0) {
-            assert(mapper->chr_rom_size == kib(8));
+        if (mapper->chr_rom.size > 0) {
+            assert(mapper->chr_rom.size == kib(8));
             return (MappedMemory) {
-                .memory = &mapper->chr_rom[address],
+                .memory = slice_u8_get_ptr(mapper->chr_rom, address),
                 .writable = false,
             };
         } else {
@@ -127,9 +127,9 @@ static u8 mapper_mmc1_cpu_read(Mapper* mapper, u16 address) {
         // UNREACHABLE();
         return 0xEA;
     } else if (address >= 0x8000 && address < 0xC000) {
-        return mapper->prg_rom_bank0[address - 0x8000];
+        return slice_u8_get(mapper->prg_rom_bank0, address - 0x8000);
     } else if (address >= 0xC000) {
-        return mapper->prg_rom_bank1[address - 0xC000];
+        return slice_u8_get(mapper->prg_rom_bank1, address - 0xC000);
     }
 
     log_fatal("Mapper(CPU): Out-of-bounds: "HEX_U16, address);
@@ -151,13 +151,13 @@ static void mapper_mmc1_chr_bank0(Mapper* mapper) {
     // Switch 8 KiB
     if (mapper->chr_bank_mode == 0) {
         u32 offset = (mapper->shifter & ~0x1)*kib(8);
-        mapper->chr_rom_bank0 = mapper->chr_rom + offset;
-        mapper->chr_rom_bank1 = mapper->chr_rom + offset + kib(4);
+        mapper->chr_rom_bank0 = slice_u8_subslice(mapper->chr_rom, offset, kib(4));
+        mapper->chr_rom_bank1 = slice_u8_subslice(mapper->chr_rom, offset + kib(4), kib(4));
     }
     // Switch 4 KiB
     else {
         u32 offset = mapper->shifter*kib(4);
-        mapper->chr_rom_bank0 = mapper->chr_rom + offset;
+        mapper->chr_rom_bank0 = slice_u8_subslice(mapper->chr_rom, offset, kib(4));
     }
 }
 
@@ -167,30 +167,31 @@ static void mapper_mmc1_chr_bank1(Mapper* mapper) {
     }
 
     u32 offset = mapper->shifter*kib(4);
-    mapper->chr_rom_bank1 = mapper->chr_rom + offset;
+    mapper->chr_rom_bank1 = slice_u8_subslice(mapper->chr_rom, offset, kib(4));
 }
 
 static void mapper_mmc1_prg_bank(Mapper* mapper) {
     u32 offset = -1;
+    u32 bank_size = kib(16);
     switch (mapper->prg_rom_bank_mode) {
         // Switchable 32 KiB
         case 0:
         case 1:
-            offset = (mapper->shifter & ~0x1)*kib(32);
-            mapper->prg_rom_bank0 = mapper->prg_rom + offset;
-            mapper->prg_rom_bank1 = mapper->prg_rom + offset + kib(16);
+            offset = (mapper->shifter & ~0x1) * bank_size*2;
+            mapper->prg_rom_bank0 = slice_u8_subslice(mapper->prg_rom, + offset, bank_size);
+            mapper->prg_rom_bank1 = slice_u8_subslice(mapper->prg_rom, + offset + bank_size, bank_size);
             break;
         // Fixed 0, switchable 1
         case 2:
-            offset = mapper->shifter*kib(16);
-            mapper->prg_rom_bank0 = mapper->prg_rom;
-            mapper->prg_rom_bank1 = mapper->prg_rom + offset;
+            offset = mapper->shifter*bank_size;
+            mapper->prg_rom_bank0 = slice_u8_subslice(mapper->prg_rom, 0, bank_size);
+            mapper->prg_rom_bank1 = slice_u8_subslice(mapper->prg_rom, + offset, bank_size);
             break;
         // Switchable 0, fixed 1
         case 3:
-            offset = mapper->shifter*kib(16);
-            mapper->prg_rom_bank0 = mapper->prg_rom + offset;
-            mapper->prg_rom_bank1 = mapper->prg_rom + mapper->prg_rom_size - kib(16);
+            offset = mapper->shifter*bank_size;
+            mapper->prg_rom_bank0 = slice_u8_subslice(mapper->prg_rom, offset, bank_size);
+            mapper->prg_rom_bank1 = slice_u8_subslice(mapper->prg_rom, mapper->prg_rom.size - bank_size, bank_size);
             break;
     }
 }
@@ -231,12 +232,12 @@ static void mapper_mmc1_cpu_write(Mapper* mapper, u16 address, u8 value) {
 static MappedMemory mapper_mmc1_ppu_helper(Mapper* mapper, u16 address) {
     if (address < 0x1000) {
         return (MappedMemory) {
-            .memory = &mapper->chr_rom_bank0[address],
+            .memory = slice_u8_get_ptr(mapper->chr_rom_bank0, address),
             .writable = false,
         };
     } else if (address >= 0x1000 && address < 0x2000) {
         return (MappedMemory) {
-            .memory = &mapper->chr_rom_bank1[address - 0x1000],
+            .memory = slice_u8_get_ptr(mapper->chr_rom_bank1, address - 0x1000),
             .writable = false,
         };
     } else if (address >= 0x2000 && address < 0x4000) {
@@ -261,46 +262,57 @@ static void mapper_mmc1_ppu_write(Mapper* mapper, u16 address, u8 value) {
 static Mapper mapper_build(NesRom* rom) {
     Mapper mapper = {0};
 
-    u8* rom_data = rom->rom_data;
+    SliceU8 rom_data = rom->rom_data;
 
-    mapper.nametable_layout = get_bit(rom_data[6], 0) == 0 ? NT_LAYOUT_VERTICAL : NT_LAYOUT_HORIZONTAL;
-    mapper.has_battery = get_bit(rom_data[6], 1);
-    mapper.has_trainer = get_bit(rom_data[6], 2);
-    mapper.alt_nametables = get_bit(rom_data[6], 3);
+    u8 byte4 = slice_u8_get(rom_data, 4);
+    u8 byte5 = slice_u8_get(rom_data, 5);
+    u8 byte6 = slice_u8_get(rom_data, 6);
+    u8 byte7 = slice_u8_get(rom_data, 7);
+    u8 byte8 = slice_u8_get(rom_data, 8);
+    u8 byte9 = slice_u8_get(rom_data, 9);
+    u8 byte10 = slice_u8_get(rom_data, 10);
+    u8 byte11 = slice_u8_get(rom_data, 10);
+    u8 byte14 = slice_u8_get(rom_data, 14);
+    u8 byte15 = slice_u8_get(rom_data, 16);
 
-    mapper.misc_roms = get_bits(rom_data[14], 0, 1);
-    mapper.expansion_device = get_bits(rom_data[15], 0, 6);
+    mapper.nametable_layout = get_bit(byte6, 0) == 0 ? NT_LAYOUT_VERTICAL : NT_LAYOUT_HORIZONTAL;
+    mapper.has_battery = get_bit(byte6, 1);
+    mapper.has_trainer = get_bit(byte6, 2);
+    mapper.alt_nametables = get_bit(byte6, 3);
 
-    mapper.id = nibble_high(rom_data[6]) |
-        (nibble_high(rom_data[7]) << 4);
+    mapper.misc_roms = get_bits(byte14, 0, 1);
+    mapper.expansion_device = get_bits(byte15, 0, 6);
+
+    mapper.id = nibble_high(byte6) |
+        (nibble_high(byte7) << 4);
     // NES 2.0 specific
-    mapper.id |= (u16) nibble_low(rom_data[8]) << 8;
-    mapper.submapper = nibble_high(rom_data[8]);
+    mapper.id |= (u16) nibble_low(byte8) << 8;
+    mapper.submapper = nibble_high(byte8);
 
     // PRG-ROM / CHR-ROM
-    u16 prg_rom_size_msb = nibble_low(rom_data[9]);
-    u16 chr_rom_size_msb = nibble_high(rom_data[9]);
+    u16 prg_rom_size_msb = nibble_low(byte9);
+    u16 chr_rom_size_msb = nibble_high(byte9);
     if (prg_rom_size_msb == 0xF || chr_rom_size_msb == 0xF) {
         log_warn("PRG-ROM or CHR-ROM size is using exponential-multiplier notation.");
     }
-    mapper.prg_rom_size = rom_data[4] | prg_rom_size_msb << 8;
-    mapper.chr_rom_size = rom_data[5] | chr_rom_size_msb << 8;
+    u32 prg_rom_size = byte4 | prg_rom_size_msb << 8;
+    u32 chr_rom_size = byte5 | chr_rom_size_msb << 8;
 
-    mapper.prg_rom_size *= kib(16);
-    mapper.chr_rom_size *= kib(8);
+    prg_rom_size *= kib(16);
+    chr_rom_size *= kib(8);
 
     // PRG-RAM / CHR-RAM
-    u8 prg_ram_shift_count = nibble_low(rom_data[10]);
-    u8 prg_nvram_shift_count = nibble_high(rom_data[10]);
+    u8 prg_ram_shift_count = nibble_low(byte10);
+    u8 prg_nvram_shift_count = nibble_high(byte10);
     if (prg_ram_shift_count > 0) { mapper.prg_ram_size = 64 << prg_ram_shift_count; }
     if (prg_nvram_shift_count > 0) { mapper.prg_nvram_size = 64 << prg_nvram_shift_count; }
 
-    u8 chr_ram_shift_count = nibble_low(rom_data[11]);
-    u8 chr_nvram_shift_count = nibble_high(rom_data[11]);
+    u8 chr_ram_shift_count = nibble_low(byte11);
+    u8 chr_nvram_shift_count = nibble_high(byte11);
     if (chr_ram_shift_count > 0) { mapper.chr_ram_size = 64 << chr_ram_shift_count; }
     if (chr_nvram_shift_count > 0) { mapper.chr_nvram_size = 64 << chr_nvram_shift_count; }
 
-    if (mapper.chr_rom_size == 0 && chr_ram_shift_count == 0) {
+    if (chr_rom_size == 0 && chr_ram_shift_count == 0) {
         mapper.chr_ram_size = kib(8);
     }
 
@@ -308,21 +320,18 @@ static Mapper mapper_build(NesRom* rom) {
         mapper.chr_ram = malloc(mapper.chr_ram_size);
     }
 
-    // ROM pointers
-    u32 idx = 16;
-
+    // ROM slices
+    u32 offset = 16;
     if (mapper.has_trainer) {
-        mapper.trainer = rom_data + idx;
-        idx += 512;
-    } else {
-        mapper.trainer = NULL;
+        mapper.trainer = slice_u8_subslice(rom_data, offset, 512);
+        offset += 512;
     }
 
-    mapper.prg_rom = rom_data + idx;
-    idx += mapper.prg_rom_size;
+    mapper.prg_rom = slice_u8_subslice(rom_data, offset, prg_rom_size);
+    offset += prg_rom_size;
 
-    mapper.chr_rom = rom_data + idx;
-    idx += mapper.chr_rom_size;
+    mapper.chr_rom = slice_u8_subslice(rom_data, offset, chr_rom_size);
+    offset += chr_rom_size;
 
     // NOTE: This could be made into a hash map sort of deal
     switch (mapper.id) {
@@ -343,11 +352,13 @@ static Mapper mapper_build(NesRom* rom) {
                 .ppu_read  = mapper_mmc1_ppu_read,
                 .ppu_write = mapper_mmc1_ppu_write,
             };
-            mapper.prg_rom_bank0 = mapper.prg_rom;
-            mapper.prg_rom_bank1 = mapper.prg_rom + mapper.prg_rom_size - kib(16);
+            u32 prg_bank_size = kib(16);
+            u32 chr_bank_size = kib(4);
+            mapper.prg_rom_bank0 = slice_u8_subslice(mapper.prg_rom, 0, prg_bank_size);
+            mapper.prg_rom_bank1 = slice_u8_subslice(mapper.prg_rom, mapper.prg_rom.size - prg_bank_size, prg_bank_size);
 
-            mapper.chr_rom_bank0 = mapper.chr_rom;
-            mapper.chr_rom_bank1 = mapper.chr_rom + kib(4);
+            mapper.chr_rom_bank0 = slice_u8_subslice(mapper.chr_rom, 0, chr_bank_size);
+            mapper.chr_rom_bank1 = slice_u8_subslice(mapper.chr_rom, chr_bank_size, chr_bank_size);
             break;
         default:
             log_fatal("Unsupported mapper: mapper %u, submapper %u", mapper.id, mapper.submapper);
@@ -406,7 +417,7 @@ NesRom load_nes_rom_from_file(const char* filename) {
         return rom;
     }
 
-    rom.rom_data = rom_data;
+    rom.rom_data = slice_u8_from_parts(rom_data, length);
 
     // Get variation
     rom.variation = get_rom_variation(rom_data, length);
@@ -435,8 +446,8 @@ NesRom load_nes_rom_from_file(const char* filename) {
 
 void print_nes_rom(NesRom rom) {
     printf("ROM variation: %s\n", NES_ROM_VARIATION_STRING[rom.variation]);
-    printf("PRG-ROM size: %u bytes\n", rom.mapper.prg_rom_size);
-    printf("CHR-ROM size: %u bytes\n", rom.mapper.chr_rom_size);
+    printf("PRG-ROM size: %u bytes\n", rom.mapper.prg_rom.size);
+    printf("CHR-ROM size: %u bytes\n", rom.mapper.chr_rom.size);
     printf("PRG-RAM size: %u bytes\n", rom.mapper.prg_ram_size);
     printf("CHR-RAM size: %u bytes\n", rom.mapper.chr_ram_size);
     printf("PRG-NVRAM size: %u bytes\n", rom.mapper.prg_nvram_size);

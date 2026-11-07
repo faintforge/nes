@@ -48,10 +48,8 @@ struct Mapper {
     u8 misc_roms;
     u8 expansion_device;
 
-    u8* prg_rom;
-    u32 prg_rom_size;
-    u8* chr_rom;
-    u32 chr_rom_size;
+    SliceU8 prg_rom;
+    SliceU8 chr_rom;
 
     // TODO: Figure out how to handle PRG-/CHR-(NV)RAM
     u32 prg_ram_size;
@@ -62,16 +60,15 @@ struct Mapper {
 
     u8 vram[0x800];
 
-    const u8* trainer;
+    SliceU8 trainer;
 
     MapperCallbacks cb;
 
     // NOTE: MMC1 specific variables
-    // TODO: Make slice data structure for bounds checking on these
-    u8* prg_rom_bank0;
-    u8* prg_rom_bank1;
-    u8* chr_rom_bank0;
-    u8* chr_rom_bank1;
+    SliceU8 prg_rom_bank0;
+    SliceU8 prg_rom_bank1;
+    SliceU8 chr_rom_bank0;
+    SliceU8 chr_rom_bank1;
     u8 shifter;
     u8 shift_count;
     u8 prg_rom_bank_mode;
@@ -80,7 +77,7 @@ struct Mapper {
 
 typedef struct NesRom NesRom;
 struct NesRom {
-    u8* rom_data;
+    SliceU8 rom_data;
     NesRomVariation variation;
 
     Mapper mapper;
