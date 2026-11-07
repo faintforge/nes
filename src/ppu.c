@@ -148,7 +148,6 @@ Ppu ppu_init(PpuTimestampFunc timestamp_cb, MemoryBus bus) {
         .bus = bus,
         .timestamp_cb = timestamp_cb,
         .scanline = -1,
-        .ppu_address_delay = -1,
         .sprite_eval_state = 1,
     };
 
@@ -373,6 +372,9 @@ static void ppu__sprite_eval(Ppu* ppu) {
                 i16 y = ppu->oam_data_latch;
                 if (ppu->scanline >= y && ppu->scanline < y+sprite_height) {
                     ppu->oam_copying_sprite = true;
+                    if (ppu->primary_oam_index == 0) {
+                        ppu->secondary_oam_has_sprite0 = true;
+                    }
                 } else {
                     ppu->sprite_eval_state = 2;
                 }
@@ -461,6 +463,7 @@ static void ppu__sprite_step(Ppu* ppu) {
         ppu->secondary_oam_index = 0;
         ppu->oam_can_write = true;
         ppu->sprite_eval_state = 1;
+        ppu->secondary_oam_has_sprite0 = false;
         assert(ppu->oam_copy_idx == 0);
     } else if (ppu->dot >= 65 && ppu->dot <= 256) {
         if (ppu->scanline != -1) {
@@ -468,10 +471,19 @@ static void ppu__sprite_step(Ppu* ppu) {
         }
     } else if (ppu->dot >= 257 && ppu->dot <= 320) {
         if (ppu->dot == 257) {
-            memcpy(ppu->to_render_oam,
-                    ppu->secondary_oam,
-                    ppu->secondary_oam_index*sizeof(SpriteOam));
+            for (u32 i = 0; i < ppu->secondary_oam_index; i++) {
+                ppu->to_render_oam[i] = (SpriteOam) {
+                    .is_sprite0 = false,
+                    .y          = ppu->secondary_oam[i][0],
+                    .tile_index = ppu->secondary_oam[i][1],
+                    .attrib     = ppu->secondary_oam[i][2],
+                    .x          = ppu->secondary_oam[i][3],
+                };
+            }
             ppu->to_render_count = ppu->secondary_oam_index;
+            if (ppu->secondary_oam_has_sprite0) {
+                ppu->to_render_oam[0].is_sprite0 = true;
+            }
         }
     }
 }
@@ -503,12 +515,6 @@ PpuDot ppu_step(Ppu* ppu) {
         ppu->io_bus = 0;
     }
 
-    if (ppu->ppu_address_delay == 0) {
-        ppu->ppu_address_delay = -1;
-        ppu->v = ppu->t;
-    }
-    ppu->ppu_address_delay = max(-1, ppu->ppu_address_delay-1);
-
     PpuDot result = {0};
 
     // Visible lines
@@ -534,6 +540,7 @@ PpuDot ppu_step(Ppu* ppu) {
                 u8 sprite_color_index = 0;
                 u8 sprite_priority = 0;
                 u8 sprite_palette_entry = 0;
+                b8 is_sprite0 = false;
                 for (u32 i = 0; i < ppu->to_render_count; i++) {
                     SpriteOam sprite = ppu->to_render_oam[i];
                     assert(is_sprite_on_scanline(ppu, sprite, ppu->scanline-1));
@@ -564,6 +571,7 @@ PpuDot ppu_step(Ppu* ppu) {
                         sprite_color_index = ppu->palette_indices[sprite_color_index];
 
                         sprite_priority = get_bit(sprite.attrib, 5);
+                        is_sprite0 = sprite.is_sprite0;
 
                         break;
                     }
@@ -593,7 +601,10 @@ PpuDot ppu_step(Ppu* ppu) {
                 } else if (tile_opaque && !sprite_opaque) {
                     color = ppu_decode_color(ppu, tile_color_index);
                 } else {
-                    ppu->sprite0_hit_flag = true;
+                    if (is_sprite0) {
+                        ppu->sprite0_hit_flag = true;
+                    }
+
                     if (sprite_priority == 0) {
                         color = ppu_decode_color(ppu, sprite_color_index);
                     } else {
@@ -816,7 +827,6 @@ static void ppu__mmio_write_address(Ppu* ppu, u8 value) {
         // log_debug("%d:%d: Old address: $%04X (%d)", ppu->scanline, ppu->dot, ppu->v, ppu->v & 0x1F);
         ppu->v = ppu->t;
         // log_debug("%d:%d: New address: $%04X (%d)", ppu->scanline, ppu->dot, ppu->v, ppu->v & 0x1F);
-        // ppu->ppu_address_delay = 1;
     }
 
     ppu->w = !ppu->w;

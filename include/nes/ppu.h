@@ -38,6 +38,7 @@ struct PpuMask {
 // https://www.nesdev.org/wiki/PPU_OAM#OAM_(Sprite)_Data
 typedef struct SpriteOam SpriteOam;
 struct SpriteOam {
+    b8 is_sprite0;
     u8 y;
     u8 tile_index;
     u8 attrib;
@@ -85,6 +86,7 @@ struct Ppu {
     u8 oam_data_latch;
     b8 oam_can_write;
     b8 oam_copying_sprite;
+    b8 secondary_oam_has_sprite0;
     // Index counters for sprite eval
     u8 primary_oam_index;
     u8 secondary_oam_index;
@@ -101,8 +103,6 @@ struct Ppu {
     u16 background_pattern_address;
     SpriteSize sprite_size;
     b8 vblank_nmi_enabled;
-
-    i8 ppu_address_delay;
 
     // TODO: Make these bit-flags
     b8 sprite_overflow_flag;
