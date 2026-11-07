@@ -67,7 +67,7 @@ u16 step_instruction(Machine* machine) {
 
 b8 run_test_file(const char* bin_filename, u16 done_address) {
     Machine machine = {
-        // .should_log = true,
+        .should_log = false,
     };
     MemoryBus bus = {
         .ctx = &machine,

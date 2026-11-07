@@ -100,19 +100,6 @@ void mem_ppu_write(MemoryBus* bus, u16 address, u8 value) {
     mapper->cb.ppu_write(mapper, address, value);
 }
 
-void print_bits(const void* data, u32 byte_count) {
-    for (u32 i = 0; i < byte_count; i++) {
-        u8 value = ((const u8*) data)[(byte_count-1) - i];
-        for (u32 j = 0; j < 8; j++) {
-            printf("%d", (value >> (7-j)) & 0x1);
-        }
-        if (i < byte_count-1) {
-            printf(" ");
-        }
-    }
-    printf("\n");
-}
-
 f32 timestamp(void) { return SDL_GetTicks() / 1e-3f; }
 
 i32 main(void) {
@@ -123,12 +110,14 @@ i32 main(void) {
     //
     // Initialize NES
     //
-    Machine machine = {
+    Machine* machine = malloc(sizeof(Machine));
+    *machine = (Machine) {
         // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
-        .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. 3 (USA).nes"), // Needs mapper 4.0
         // .rom = load_nes_rom_from_file("nes_roms/Galaga - Demons of Death (USA).nes"),
+        .rom = load_nes_rom_from_file("nes_roms/Ice Climber (USA, Europe, Korea) (En).nes"),
 
         // .rom = load_nes_rom_from_file("nes_roms/tests/color_test.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/full_nes_palette.nes"),
@@ -171,23 +160,23 @@ i32 main(void) {
 
         .input = input_device_keyboard(),
     };
-    print_nes_rom(machine.rom);
+    print_nes_rom(machine->rom);
 
     // Currently hard-coded to be an NMOS mapper.
-    machine.cpu = cpu_init((MemoryBus) {
-            .ctx = &machine,
+    machine->cpu = cpu_init((MemoryBus) {
+            .ctx = machine,
             .read = mem_cpu_read,
             .write = mem_cpu_write,
         });
-    Cpu* cpu = &machine.cpu;
+    Cpu* cpu = &machine->cpu;
     cpu->disable_decimal_mode = true;
 
-    machine.ppu = ppu_init(timestamp, (MemoryBus) {
-            .ctx = &machine,
+    machine->ppu = ppu_init(timestamp, (MemoryBus) {
+            .ctx = machine,
             .read = mem_ppu_read,
             .write = mem_ppu_write,
         });
-    Ppu* ppu = &machine.ppu;
+    Ppu* ppu = &machine->ppu;
 
     //
     // Initialize other stuff
@@ -198,6 +187,8 @@ i32 main(void) {
     SDL_Window* window = NULL;
     SDL_Renderer* renderer = NULL;
     SDL_CHECK(SDL_CreateWindowAndRenderer("nesemu", 1280, 720, 0, &window, &renderer));
+    assert(window != NULL);
+    assert(renderer != NULL);
     // SDL_SetWindowResizable(window, true);
 
     u8 output_pixels[PICTURE_WIDTH*PICTURE_HEIGHT*4] = {0};
@@ -222,9 +213,10 @@ i32 main(void) {
         clock_timer += dt_ns;
         while (clock_timer >= 1.0e9 / clock_hz) {
             if (tick % 12 == 0) {
-                machine.input.update(&machine.input);
+                machine->input.update(&machine->input);
                 cpu_step(cpu);
-                oam_dma_step(&machine.oam_dma, cpu, ppu);
+                // log_debug("%lu", cpu->cycle);
+                oam_dma_step(&machine->oam_dma, cpu, ppu);
             }
 
             if (tick % 4 == 0) {
@@ -311,7 +303,8 @@ i32 main(void) {
         SDL_RenderPresent(renderer);
     }
 
-    free(machine.rom.rom_data.data);
+    free(machine->rom.rom_data.data);
+    free(machine);
 
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);

@@ -1,10 +1,10 @@
-CC := gcc
+CC := clang
 SRC := $(wildcard src/*.c)
-CFLAGS := -ggdb -Wall -Wextra
+CFLAGS := -ggdb -Wall -Wextra -pedantic -Og
 IFLAGS := -Iinclude -Ilibs/glad/include
 LFLAGS := -lm -lSDL3
 
-CFLAGS += -fsanitize=address -fno-omit-frame-pointer
+# CFLAGS += -fsanitize=address,undefined -fno-omit-frame-pointer
 
 .DEFAULT_GOAL := all
 

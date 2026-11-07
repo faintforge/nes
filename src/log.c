@@ -25,6 +25,7 @@ void logger_register_callback(LoggerCallback func, void* userdata) {
 }
 
 void _log_log(LogLevel level, const char* file, int32_t line, const char* message, ...) {
+    assert(level < _LOG_LEVEL_COUNT);
     for (uint32_t i = 0; i < g_logger_callback_count; i++) {
         LogEvent event = {
             .level = level,
@@ -40,6 +41,7 @@ void _log_log(LogLevel level, const char* file, int32_t line, const char* messag
 }
 
 void log_stdout_callback(LogEvent event, void* user_data) {
+    assert(event.level < _LOG_LEVEL_COUNT);
     (void) user_data;
     const char* const level_color[_LOG_LEVEL_COUNT + 1] = {
         "\033[101;30m",
@@ -59,11 +61,13 @@ void log_stdout_callback(LogEvent event, void* user_data) {
         "TRACE",
     };
 
-    printf("%s%s\033[0;90m %s:%u: \033[0m",
+    FILE* stream = event.level == LOG_LEVEL_INFO ? stdout : stderr;
+
+    fprintf(stream, "%s%s\033[0;90m %s:%u: \033[0m",
             level_color[event.level],
             level_str[event.level],
             event.file,
             event.line);
-    vprintf(event.message, event.args);
+    vfprintf(stream, event.message, event.args);
     printf("\n");
 }

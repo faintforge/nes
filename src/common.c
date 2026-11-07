@@ -16,11 +16,13 @@ b8 read_file(const char* filename, u8* output_buffer, u32* length) {
 
     if (output_buffer == NULL) {
         *length = _length;
+        fclose(fp);
         return true;
     }
 
     if (_length > *length) {
         log_error("ERR: Too small buffer to read into.");
+        fclose(fp);
         return false;
     }
 

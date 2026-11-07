@@ -13,16 +13,16 @@ typedef enum NesRomVariation {
     NES_ROM_VARIATION__COUNT,
 } NesRomVariation;
 
+static const char* const NES_ROM_VARIATION_STRING[NES_ROM_VARIATION__COUNT] = {
+    "Unknown", "archac iNES", "iNES 0.7", "iNES", "NES 2.0",
+};
+
 typedef enum NtLayout {
     NT_LAYOUT_ONE_SCREEN_A,
     NT_LAYOUT_ONE_SCREEN_B,
     NT_LAYOUT_HORIZONTAL,
     NT_LAYOUT_VERTICAL,
 } NtLayout;
-
-static const char* const NES_ROM_VARIATION_STRING[NES_ROM_VARIATION__COUNT] = {
-    "Unknown", "archac iNES", "iNES 0.7", "iNES", "NES 2.0",
-};
 
 typedef struct Mapper Mapper;
 

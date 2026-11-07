@@ -2,9 +2,13 @@
 
 #include <string.h>
 
+#define HEADER_SIZE 16
+
 // =============================================================================
 // Mappers
 // =============================================================================
+
+static u8 open_bus_dummy = 0xEA;
 
 //
 // CPU mapper space $4020-$FFFF
@@ -20,28 +24,46 @@ struct MappedMemory {
 static MappedMemory mapper_util_vram(Mapper* mapper, u16 address) {
     assert(address >= 0x2000 && address < 0x4000);
 
+    // $2000 => nt1
+    // $2400 => nt2
+    // $2800 => nt3
+    // $2C00 => nt4
+
+    // Vertical
+    // $2000 => $000 - $400
+    // $2400 => $000 - $400
+    // $2800 => $400 - $800
+    // $2C00 => $400 - $800
+
+    u16 mapped = 0;
     switch (mapper->nametable_layout) {
         case NT_LAYOUT_ONE_SCREEN_A:
-            address &= 0x3FF;
+            mapped = address & 0x3FF;
             break;
         case NT_LAYOUT_ONE_SCREEN_B:
-            address &= 0x3FF;
-            address += 0x400;
+            mapped = address & 0x3FF;
+            mapped += 0x400;
             break;
         case NT_LAYOUT_VERTICAL:
             // Turn off vertical nametable bit
-            address &= ~0x400;
-            address &= 0xFFF;
+            mapped = address & ~0x800;
+            mapped &= 0xFFF;
             break;
         case NT_LAYOUT_HORIZONTAL:
             // Turn off horizontal nametable bit
-            address &= ~0x800;
-            address &= 0xFFF;
+            mapped = address & ~0x400;
+            mapped &= 0xFFF;
             break;
+        default:
+            UNREACHABLE();
     }
 
+    if (mapped >= sizeof(mapper->vram)) {
+        log_fatal("V-ram out-of-bounds: "HEX_U16" => "HEX_U16, address, mapped);
+        UNREACHABLE();
+    }
     return (MappedMemory) {
-        .memory = &mapper->vram[address],
+        .memory = &mapper->vram[mapped],
         .writable = true,
     };
 }
@@ -51,9 +73,8 @@ static MappedMemory mapper_nrom_cpu_helper(Mapper* mapper, u16 address) {
     if (address >= 0x6000 && address < 0x8000) {
         // TODO: This is supposed to be open bus behavior
         // https://www.nesdev.org/wiki/Open_bus_behavior#CPU_open_bus
-        static u8 dummy = 0xEA;
         return (MappedMemory) {
-            &dummy,
+            &open_bus_dummy,
             .writable = false,
         };
     } else if (address >= 0x8000) {
@@ -125,7 +146,7 @@ static u8 mapper_mmc1_cpu_read(Mapper* mapper, u16 address) {
     if (address >= 0x6000 && address < 0x8000) {
         // TODO: Optional PRG-RAM
         // UNREACHABLE();
-        return 0xEA;
+        return open_bus_dummy;
     } else if (address >= 0x8000 && address < 0xC000) {
         return slice_u8_get(mapper->prg_rom_bank0, address - 0x8000);
     } else if (address >= 0xC000) {
@@ -321,7 +342,7 @@ static Mapper mapper_build(NesRom* rom) {
     }
 
     // ROM slices
-    u32 offset = 16;
+    u32 offset = HEADER_SIZE;
     if (mapper.has_trainer) {
         mapper.trainer = slice_u8_subslice(rom_data, offset, 512);
         offset += 512;
@@ -416,6 +437,7 @@ NesRom load_nes_rom_from_file(const char* filename) {
         free(rom_data);
         return rom;
     }
+    assert(length >= HEADER_SIZE);
 
     rom.rom_data = slice_u8_from_parts(rom_data, length);
 
@@ -445,19 +467,19 @@ NesRom load_nes_rom_from_file(const char* filename) {
 }
 
 void print_nes_rom(NesRom rom) {
-    printf("ROM variation: %s\n", NES_ROM_VARIATION_STRING[rom.variation]);
-    printf("PRG-ROM size: %u bytes\n", rom.mapper.prg_rom.size);
-    printf("CHR-ROM size: %u bytes\n", rom.mapper.chr_rom.size);
-    printf("PRG-RAM size: %u bytes\n", rom.mapper.prg_ram_size);
-    printf("CHR-RAM size: %u bytes\n", rom.mapper.chr_ram_size);
-    printf("PRG-NVRAM size: %u bytes\n", rom.mapper.prg_nvram_size);
-    printf("CHR-NVRAM size: %u bytes\n", rom.mapper.chr_nvram_size);
-    printf("Nametable layout: %s\n", rom.mapper.nametable_layout ? "Vertical" : "Horizontal");
-    printf("Battery: %s\n", rom.mapper.has_battery ? "Present" : "Not present");
-    printf("Trainer area: %s\n", rom.mapper.has_trainer ? "Present" : "Not present");
-    printf("Alt nametables: %s\n", rom.mapper.alt_nametables ? "Yes" : "No");
-    printf("Mapper: %d\n", rom.mapper.id);
-    printf("Submapper: %d\n", rom.mapper.submapper);
-    printf("Misc ROMs: %d\n", rom.mapper.misc_roms);
-    printf("Default expansion device: $%02X\n", rom.mapper.expansion_device);
+    log_info("ROM variation: %s", NES_ROM_VARIATION_STRING[rom.variation]);
+    log_info("PRG-ROM size: %u bytes", rom.mapper.prg_rom.size);
+    log_info("CHR-ROM size: %u bytes", rom.mapper.chr_rom.size);
+    log_info("PRG-RAM size: %u bytes", rom.mapper.prg_ram_size);
+    log_info("CHR-RAM size: %u bytes", rom.mapper.chr_ram_size);
+    log_info("PRG-NVRAM size: %u bytes", rom.mapper.prg_nvram_size);
+    log_info("CHR-NVRAM size: %u bytes", rom.mapper.chr_nvram_size);
+    log_info("Nametable layout: %s", rom.mapper.nametable_layout ? "Vertical" : "Horizontal");
+    log_info("Battery: %s", rom.mapper.has_battery ? "Present" : "Not present");
+    log_info("Trainer area: %s", rom.mapper.has_trainer ? "Present" : "Not present");
+    log_info("Alt nametables: %s", rom.mapper.alt_nametables ? "Yes" : "No");
+    log_info("Mapper: %d", rom.mapper.id);
+    log_info("Submapper: %d", rom.mapper.submapper);
+    log_info("Misc ROMs: %d", rom.mapper.misc_roms);
+    log_info("Default expansion device: $%02X", rom.mapper.expansion_device);
 }

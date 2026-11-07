@@ -395,6 +395,7 @@ static void ppu__sprite_eval(Ppu* ppu) {
             ppu->primary_oam_index++;
             // 2a
             if (ppu->primary_oam_index >= 64) {
+                ppu->primary_oam_index = 0;
                 ppu->sprite_eval_state = 4;
                 break;
             }
@@ -471,6 +472,7 @@ static void ppu__sprite_step(Ppu* ppu) {
         }
     } else if (ppu->dot >= 257 && ppu->dot <= 320) {
         if (ppu->dot == 257) {
+            assert(ppu->secondary_oam_index <= 8);
             for (u32 i = 0; i < ppu->secondary_oam_index; i++) {
                 ppu->to_render_oam[i] = (SpriteOam) {
                     .is_sprite0 = false,
@@ -541,39 +543,47 @@ PpuDot ppu_step(Ppu* ppu) {
                 u8 sprite_priority = 0;
                 u8 sprite_palette_entry = 0;
                 b8 is_sprite0 = false;
+                // assert(ppu->sprite_size == SPRITE_SIZE_8X8);
                 for (u32 i = 0; i < ppu->to_render_count; i++) {
                     SpriteOam sprite = ppu->to_render_oam[i];
                     // log_debug("%d, %d", ppu->scanline-1, sprite.y);
                     assert(is_sprite_on_scanline(ppu, sprite, ppu->scanline-1));
                     if (x >= sprite.x && x < sprite.x+8) {
-                        u32 sprite_x = x - sprite.x;
-                        i32 sprite_y = ppu->scanline - sprite.y - 1;
-                        // Flip vertically
-                        u8 plane_y = get_bit(sprite.attrib, 7) == 1 ? 7-sprite_y : sprite_y;
+                        switch (ppu->sprite_size) {
+                            case SPRITE_SIZE_8X8: {
+                                u32 sprite_x = x - sprite.x;
+                                i32 sprite_y = ppu->scanline - sprite.y - 1;
+                                // Flip vertically
+                                u8 plane_y = get_bit(sprite.attrib, 7) == 1 ? 7-sprite_y : sprite_y;
 
-                        u16 pattern_addr_base = ppu->sprite_pattern_table_address;
-                        pattern_addr_base |= sprite.tile_index << 4;
-                        pattern_addr_base |= plane_y;
+                                u16 pattern_addr_base = ppu->sprite_pattern_table_address;
+                                pattern_addr_base |= sprite.tile_index << 4;
+                                pattern_addr_base |= plane_y;
 
-                        // Flip horizontally
-                        u8 plane_x = get_bit(sprite.attrib, 6) == 0 ? 7-sprite_x : sprite_x;
+                                // Flip horizontally
+                                u8 plane_x = get_bit(sprite.attrib, 6) == 0 ? 7-sprite_x : sprite_x;
 
-                        u8 low_plane = ppu->bus.read(&ppu->bus, pattern_addr_base);
-                        u8 high_plane = ppu->bus.read(&ppu->bus, pattern_addr_base^0x8);
-                        sprite_palette_entry = get_bit(low_plane, plane_x) |
-                            (get_bit(high_plane, plane_x) << 1);
-                        // Transparent pixel
-                        if (sprite_palette_entry == 0) {
-                            continue;
+                                u8 low_plane = ppu->bus.read(&ppu->bus, pattern_addr_base);
+                                u8 high_plane = ppu->bus.read(&ppu->bus, pattern_addr_base^0x8);
+                                sprite_palette_entry = get_bit(low_plane, plane_x) |
+                                    (get_bit(high_plane, plane_x) << 1);
+                                // Transparent pixel
+                                if (sprite_palette_entry == 0) {
+                                    continue;
+                                }
+                                sprite_color_index = sprite_palette_entry + (sprite.attrib & 0x3)*4;
+                                assert(sprite_color_index <= 0xF);
+                                sprite_color_index ^= 0x10;
+                                sprite_color_index = ppu->palette_indices[sprite_color_index];
+                            } break;
+                            case SPRITE_SIZE_8X16:
+                                break;
+                            default:
+                                UNREACHABLE();
                         }
-                        sprite_color_index = sprite_palette_entry + (sprite.attrib & 0x3)*4;
-                        assert(sprite_color_index <= 0xF);
-                        sprite_color_index ^= 0x10;
-                        sprite_color_index = ppu->palette_indices[sprite_color_index];
 
                         sprite_priority = get_bit(sprite.attrib, 5);
                         is_sprite0 = sprite.is_sprite0;
-
                         break;
                     }
                 }
