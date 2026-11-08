@@ -44,24 +44,33 @@ u8 mem_cpu_read(MemoryBus* bus, u16 address) {
     } else if (address >= 0x4000 && address < 0x4018) {
         switch (address) {
             // Controller 1
-            case 0x4016:
-                return input_device_read(&machine->input);
+            case 0x4016: {
+                u8 value = input_device_read(&machine->input);
+                // Preserve top 3 bits of open bus
+                value |= ((machine->cpu.data_bus >> 5) << 5);
+                return value;
+            }
             case 0x4017:
                 // TODO: Implement a second controller
-                return 0;
+                return (machine->cpu.data_bus >> 5) << 5;
             default:
-                return 0;
+                return machine->cpu.data_bus;
         }
     } else if (address >= 0x4018 && address < 0x4020) {
         log_warn("Read to "HEX_U16" which is only avilable in CPU test mode!", address);
-        return 0;
+        return machine->cpu.data_bus;
     } else {
-        return machine->rom.mapper.cb.cpu_read(&machine->rom.mapper, address);
+        i16 memory = machine->rom.mapper.cb.cpu_read(&machine->rom.mapper, address);
+        // Unmapped
+        if (memory == -1) {
+            return machine->cpu.data_bus;
+        } else {
+            return memory;
+        }
     }
 }
 
 void mem_cpu_write(MemoryBus* bus, u16 address, u8 value) {
-    // log_debug("WRITE: "HEX_U16, address);
     Machine* machine = bus->ctx;
     if (address < 0x2000) {
         machine->cpu_ram[address & 0x7FF] = value;
@@ -117,13 +126,15 @@ i32 main(void) {
         // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. 3 (USA).nes"), // Needs mapper 4.0
         // .rom = load_nes_rom_from_file("nes_roms/Galaga - Demons of Death (USA).nes"),
-        .rom = load_nes_rom_from_file("nes_roms/Ice Climber (USA, Europe, Korea) (En).nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/Ice Climber (USA, Europe, Korea) (En).nes"),
 
         // .rom = load_nes_rom_from_file("nes_roms/tests/color_test.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/full_nes_palette.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/palette.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/demo_ntsc.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/ppu_vbl_nmi.nes"), // Needs unofficial opcodes
+
+        .rom = load_nes_rom_from_file("nes_roms/tests/AccuracyCoin.nes"),
 
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_overflow/3.Timing.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_overflow/5.Emulator.nes"),

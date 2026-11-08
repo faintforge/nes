@@ -28,7 +28,7 @@ typedef struct Mapper Mapper;
 
 typedef struct MapperCallbacks  MapperCallbacks ;
 struct MapperCallbacks {
-    u8 (*cpu_read)(Mapper* mapper, u16 address);
+    i16 (*cpu_read)(Mapper* mapper, u16 address);
     void (*cpu_write)(Mapper* mapper, u16 address, u8 value);
 
     u8 (*ppu_read)(Mapper* mapper, u16 address);

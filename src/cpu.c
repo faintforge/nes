@@ -1204,8 +1204,10 @@ void cpu_step(Cpu* cpu) {
             break;
 
         case OP__UNDEFINED:
-            fprintf(stderr, "ERR: Undefined opcode at $%04X: $%02X\n", cpu->pc, cpu->ir);
-            UNREACHABLE();
+            log_warn("Undefined opcode at $%04X: $%02X", cpu->pc, cpu->ir);
+            cpu_advance_pc(cpu);
+            cpu_instruction_done(cpu);
+            break;
         default:
             fprintf(stderr, "ERR: Unknown opcode: 0x%02X\n", cpu->ir);
             UNREACHABLE();

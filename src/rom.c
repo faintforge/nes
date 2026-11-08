@@ -8,8 +8,6 @@
 // Mappers
 // =============================================================================
 
-static u8 open_bus_dummy = 0xEA;
-
 //
 // CPU mapper space $4020-$FFFF
 // PPU mapper space $0000-$3FFF
@@ -20,6 +18,8 @@ struct MappedMemory {
     u8* memory;
     b8 writable;
 };
+
+#define UNMAPPED_MEMORY ((MappedMemory) {.memory = NULL, .writable = false})
 
 static MappedMemory mapper_util_vram(Mapper* mapper, u16 address) {
     assert(address >= 0x2000 && address < 0x4000);
@@ -71,12 +71,7 @@ static MappedMemory mapper_util_vram(Mapper* mapper, u16 address) {
 // https://www.nesdev.org/wiki/NROM
 static MappedMemory mapper_nrom_cpu_helper(Mapper* mapper, u16 address) {
     if (address >= 0x6000 && address < 0x8000) {
-        // TODO: This is supposed to be open bus behavior
-        // https://www.nesdev.org/wiki/Open_bus_behavior#CPU_open_bus
-        return (MappedMemory) {
-            &open_bus_dummy,
-            .writable = false,
-        };
+        return UNMAPPED_MEMORY;
     } else if (address >= 0x8000) {
         u16 index = address - 0x8000;
         if (mapper->prg_rom.size == kib(16)) {
@@ -89,12 +84,16 @@ static MappedMemory mapper_nrom_cpu_helper(Mapper* mapper, u16 address) {
         };
     }
 
-    log_fatal("Mapper(CPU): Out-of-bounds: "HEX_U16, address);
-    UNREACHABLE();
+    return UNMAPPED_MEMORY;
 }
 
-static u8 mapper_nrom_cpu_read(Mapper* mapper, u16 address) {
-    return *mapper_nrom_cpu_helper(mapper, address).memory;
+static i16 mapper_nrom_cpu_read(Mapper* mapper, u16 address) {
+    MappedMemory mapped = mapper_nrom_cpu_helper(mapper, address);
+    if (mapped.memory == NULL) {
+        return -1;
+    } else {
+        return *mapped.memory;
+    }
 }
 
 static void mapper_nrom_cpu_write(Mapper* mapper, u16 address, u8 value) {
@@ -142,19 +141,17 @@ static void mapper_nrom_ppu_write(Mapper* mapper, u16 address, u8 value) {
 }
 
 // https://www.nesdev.org/wiki/MMC1
-static u8 mapper_mmc1_cpu_read(Mapper* mapper, u16 address) {
+static i16 mapper_mmc1_cpu_read(Mapper* mapper, u16 address) {
     if (address >= 0x6000 && address < 0x8000) {
         // TODO: Optional PRG-RAM
-        // UNREACHABLE();
-        return open_bus_dummy;
+        return -1;
     } else if (address >= 0x8000 && address < 0xC000) {
         return slice_u8_get(mapper->prg_rom_bank0, address - 0x8000);
     } else if (address >= 0xC000) {
         return slice_u8_get(mapper->prg_rom_bank1, address - 0xC000);
     }
 
-    log_fatal("Mapper(CPU): Out-of-bounds: "HEX_U16, address);
-    UNREACHABLE();
+    return -1;
 }
 
 static void mapper_mmc1_control(Mapper* mapper) {
