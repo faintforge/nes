@@ -181,27 +181,20 @@ static void ppu__inc_hori(Ppu* ppu) {
 static void ppu__inc_vert(Ppu* ppu) {
     // Stolen from: www.nesdev.org/wiki/PPU_scrolling#Wrapping_around
 
-    if (get_bits(ppu->v, 12, 14) < 7) {
+    if ((ppu->v & 0x7000) != 0x7000) {
         ppu->v += 0x1000;
     } else {
-        // Clear fine-Y
-        ppu->v = clear_bits(ppu->v, 12, 14);
-
-        // Get coarse-Y
-        u16 y = get_bits(ppu->v, 5, 9);
+        ppu->v &= ~0x7000;
+        u16 y = (ppu->v & 0x03E0) >> 5;
         if (y == 29) {
             y = 0;
-            // Switch vertical nametable
-            ppu->v ^= 0x8000;
+            ppu->v ^= 0x0800;
         } else if (y == 31) {
             y = 0;
         } else {
             y++;
         }
-
-        // Update coarse-Y
-        ppu->v = clear_bits(ppu->v, 5, 9);
-        ppu->v |= y << 5;
+        ppu->v = (ppu->v & ~0x03E0) | (y << 5);
     }
     ppu->v &= 0x7FFF;
 }
@@ -260,8 +253,8 @@ static void ppu__fetch_tile_data(Ppu* ppu, u32 starting_dot) {
     // Pattern address
     // https://www.nesdev.org/wiki/PPU_pattern_tables
     // 0HNNNN NNNNPyyy
-    // Fine-Y
-    u16 pattern_addr_plane0 = get_bits(ppu->v, 12, 14);
+    u8 fine_y = get_bits(ppu->v, 12, 14);
+    u16 pattern_addr_plane0 = fine_y;
     pattern_addr_plane0 |= ppu->nt_bus << 4;
     pattern_addr_plane0 |= ppu->background_pattern_address;
 

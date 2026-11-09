@@ -45,10 +45,10 @@ static MappedMemory mapper_util_vram(Mapper* mapper, u16 address) {
         case NT_LAYOUT_ONE_SCREEN_B:
             mapped = 0x400 | offset;
             break;
-        case NT_LAYOUT_VERTICAL:
+        case NT_LAYOUT_HORIZONTAL:
             mapped = (nametable & 1) * 0x400 + offset;
             break;
-        case NT_LAYOUT_HORIZONTAL:
+        case NT_LAYOUT_VERTICAL:
             mapped = (nametable >> 1) * 0x400 + offset;
             break;
         default:
