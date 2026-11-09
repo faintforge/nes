@@ -542,38 +542,57 @@ PpuDot ppu_step(Ppu* ppu) {
                     // log_debug("%d, %d", ppu->scanline-1, sprite.y);
                     assert(is_sprite_on_scanline(ppu, sprite, ppu->scanline-1));
                     if (x >= sprite.x && x < sprite.x+8) {
-                        switch (ppu->sprite_size) {
-                            case SPRITE_SIZE_8X8: {
-                                u32 sprite_x = x - sprite.x;
-                                i32 sprite_y = ppu->scanline - sprite.y - 1;
-                                // Flip vertically
-                                u8 plane_y = get_bit(sprite.attrib, 7) == 1 ? 7-sprite_y : sprite_y;
+                        u32 sprite_x = x - sprite.x;
+                        i32 sprite_y = ppu->scanline - sprite.y - 1;
+                        // Only applies to 8x16 sprites
+                        u8 is_top_sprite = sprite_y < 8;
+                        if (!is_top_sprite) {
+                            sprite_y -= 8;
+                        }
+                        b8 flip_vertically = get_bit(sprite.attrib, 7) == 1;
+                        u8 plane_y = flip_vertically ? 7-sprite_y : sprite_y;
 
-                                u16 pattern_addr_base = ppu->sprite_pattern_table_address;
+                        i32 pattern_addr_base = -1;
+                        switch (ppu->sprite_size) {
+                            case SPRITE_SIZE_8X8:
+                                pattern_addr_base = ppu->sprite_pattern_table_address;
                                 pattern_addr_base |= sprite.tile_index << 4;
                                 pattern_addr_base |= plane_y;
-
-                                // Flip horizontally
-                                u8 plane_x = get_bit(sprite.attrib, 6) == 0 ? 7-sprite_x : sprite_x;
-
-                                u8 low_plane = ppu->bus.read(&ppu->bus, pattern_addr_base);
-                                u8 high_plane = ppu->bus.read(&ppu->bus, pattern_addr_base^0x8);
-                                sprite_palette_entry = get_bit(low_plane, plane_x) |
-                                    (get_bit(high_plane, plane_x) << 1);
-                                // Transparent pixel
-                                if (sprite_palette_entry == 0) {
-                                    continue;
-                                }
-                                sprite_color_index = sprite_palette_entry + (sprite.attrib & 0x3)*4;
-                                assert(sprite_color_index <= 0xF);
-                                sprite_color_index ^= 0x10;
-                                sprite_color_index = ppu->palette_indices[sprite_color_index];
-                            } break;
+                                break;
                             case SPRITE_SIZE_8X16:
+                                // https://www.nesdev.org/wiki/PPU_OAM#Byte_1_-_Tile/index
+                                if (flip_vertically) {
+                                    is_top_sprite = !is_top_sprite;
+                                }
+                                pattern_addr_base = 0x1000 * (sprite.tile_index & 0x1);
+                                pattern_addr_base |= (sprite.tile_index & ~0x1) << 4;
+                                pattern_addr_base |= plane_y;
+                                if (!is_top_sprite) {
+                                    // https://www.nesdev.org/wiki/PPU_pattern_tables
+                                    // One tile takes up 16 bytes in the CHR-ROM
+                                    pattern_addr_base += 16;
+                                }
                                 break;
                             default:
                                 UNREACHABLE();
                         }
+                        assert(pattern_addr_base >= 0 && pattern_addr_base < 0x2000);
+
+                        // Flip horizontally
+                        u8 plane_x = get_bit(sprite.attrib, 6) == 0 ? 7-sprite_x : sprite_x;
+
+                        u8 low_plane = ppu->bus.read(&ppu->bus, pattern_addr_base);
+                        u8 high_plane = ppu->bus.read(&ppu->bus, pattern_addr_base^0x8);
+                        sprite_palette_entry = get_bit(low_plane, plane_x) |
+                            (get_bit(high_plane, plane_x) << 1);
+                        // Transparent pixel
+                        if (sprite_palette_entry == 0) {
+                            continue;
+                        }
+                        sprite_color_index = sprite_palette_entry + (sprite.attrib & 0x3)*4;
+                        assert(sprite_color_index <= 0xF);
+                        sprite_color_index ^= 0x10;
+                        sprite_color_index = ppu->palette_indices[sprite_color_index];
 
                         sprite_priority = get_bit(sprite.attrib, 5);
                         is_sprite0 = sprite.is_sprite0;
