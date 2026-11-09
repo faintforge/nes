@@ -35,24 +35,21 @@ static MappedMemory mapper_util_vram(Mapper* mapper, u16 address) {
     // $2800 => $400 - $800
     // $2C00 => $400 - $800
 
+    u16 offset = address & 0x3FF;
+    u16 nametable = (address >> 10) & 0x3;
     u16 mapped = 0;
     switch (mapper->nametable_layout) {
         case NT_LAYOUT_ONE_SCREEN_A:
-            mapped = address & 0x3FF;
+            mapped = offset;
             break;
         case NT_LAYOUT_ONE_SCREEN_B:
-            mapped = address & 0x3FF;
-            mapped += 0x400;
+            mapped = 0x400 | offset;
             break;
         case NT_LAYOUT_VERTICAL:
-            // Turn off vertical nametable bit
-            mapped = address & ~0x800;
-            mapped &= 0xFFF;
+            mapped = (nametable & 1) * 0x400 + offset;
             break;
         case NT_LAYOUT_HORIZONTAL:
-            // Turn off horizontal nametable bit
-            mapped = address & ~0x400;
-            mapped &= 0xFFF;
+            mapped = (nametable >> 1) * 0x400 + offset;
             break;
         default:
             UNREACHABLE();
