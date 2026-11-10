@@ -122,7 +122,7 @@ i32 main(void) {
     Machine* machine = malloc(sizeof(Machine));
     *machine = (Machine) {
         // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
-        .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. 3 (USA).nes"), // Needs mapper 4.0
         // .rom = load_nes_rom_from_file("nes_roms/Galaga - Demons of Death (USA).nes"),
@@ -134,13 +134,13 @@ i32 main(void) {
         // .rom = load_nes_rom_from_file("nes_roms/tests/demo_ntsc.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/ppu_vbl_nmi.nes"), // Needs unofficial opcodes
 
+        // .rom = load_nes_rom_from_file("/home/faint/Downloads/instr_timing.nes"), // Requires APU
+
         // .rom = load_nes_rom_from_file("nes_roms/tests/AccuracyCoin.nes"),
 
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_overflow/3.Timing.nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_overflow/5.Emulator.nes"),
 
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_reads.nes"), // Needs mapper 3.0
-        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_writes_oam.nes"), // Needs unofficial opcodes
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_writes_ppumem.nes"), // Needs unofficial opcodes
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_interrupts.nes"), // Needs unofficial opcodes
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_reset_registers.nes"),
@@ -156,6 +156,7 @@ i32 main(void) {
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_overflow/1.Basics.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_overflow/2.Details.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_overflow/4.Obscure.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_overflow/5.Emulator.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/01.basics.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/02.alignment.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/03.corners.nes"),
@@ -167,6 +168,8 @@ i32 main(void) {
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/09.timing_basics.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/10.timing_order.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/11.edge_timing.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_writes_oam.nes"),
+        .rom = load_nes_rom_from_file("nes_roms/tests/all_instrs.nes"),
 
         .input = input_device_keyboard(),
     };
@@ -225,6 +228,7 @@ i32 main(void) {
             if (tick % 12 == 0) {
                 machine->input.update(&machine->input);
                 cpu_step(cpu);
+                machine->rom.mapper.cb.step(&machine->rom.mapper, cpu->bus_mode == READ);
                 // log_debug("%lu", cpu->cycle);
                 oam_dma_step(&machine->oam_dma, cpu, ppu);
             }

@@ -65,6 +65,11 @@ static MappedMemory mapper_util_vram(Mapper* mapper, u16 address) {
     };
 }
 
+static void mapper_dummy_step(Mapper* mapper, b8 read_cycle) {
+    (void) mapper;
+    (void) read_cycle;
+}
+
 // https://www.nesdev.org/wiki/NROM
 static MappedMemory mapper_nrom_cpu_helper(Mapper* mapper, u16 address) {
     if (address >= 0x6000 && address < 0x8000) {
@@ -166,13 +171,13 @@ static void mapper_mmc1_chr_bank0(Mapper* mapper) {
     // Switch 8 KiB
     if (mapper->chr_bank_mode == 0) {
         u32 offset = (mapper->shifter & ~0x1)*kib(8);
-        mapper->chr_rom_bank0 = slice_u8_subslice(mapper->chr_rom, offset, kib(4));
-        mapper->chr_rom_bank1 = slice_u8_subslice(mapper->chr_rom, offset + kib(4), kib(4));
+        mapper->chr_bank0 = slice_u8_subslice(mapper->chr_mem, offset, kib(4));
+        mapper->chr_bank1 = slice_u8_subslice(mapper->chr_mem, offset + kib(4), kib(4));
     }
     // Switch 4 KiB
     else {
         u32 offset = mapper->shifter*kib(4);
-        mapper->chr_rom_bank0 = slice_u8_subslice(mapper->chr_rom, offset, kib(4));
+        mapper->chr_bank0 = slice_u8_subslice(mapper->chr_mem, offset, kib(4));
     }
 }
 
@@ -182,7 +187,7 @@ static void mapper_mmc1_chr_bank1(Mapper* mapper) {
     }
 
     u32 offset = mapper->shifter*kib(4);
-    mapper->chr_rom_bank1 = slice_u8_subslice(mapper->chr_rom, offset, kib(4));
+    mapper->chr_bank1 = slice_u8_subslice(mapper->chr_mem, offset, kib(4));
 }
 
 static void mapper_mmc1_prg_bank(Mapper* mapper) {
@@ -193,14 +198,15 @@ static void mapper_mmc1_prg_bank(Mapper* mapper) {
         case 0:
         case 1:
             offset = (mapper->shifter & ~0x1) * bank_size*2;
-            mapper->prg_rom_bank0 = slice_u8_subslice(mapper->prg_rom, + offset, bank_size);
-            mapper->prg_rom_bank1 = slice_u8_subslice(mapper->prg_rom, + offset + bank_size, bank_size);
+            mapper->prg_rom_bank0 = slice_u8_subslice(mapper->prg_rom, offset, bank_size);
+            mapper->prg_rom_bank1 = slice_u8_subslice(mapper->prg_rom, offset + bank_size, bank_size);
             break;
         // Fixed 0, switchable 1
         case 2:
-            offset = mapper->shifter*bank_size;
+            offset = (mapper->shifter & 0xFF)*bank_size;
             mapper->prg_rom_bank0 = slice_u8_subslice(mapper->prg_rom, 0, bank_size);
-            mapper->prg_rom_bank1 = slice_u8_subslice(mapper->prg_rom, + offset, bank_size);
+            log_debug("%u", offset);
+            mapper->prg_rom_bank1 = slice_u8_subslice(mapper->prg_rom, offset, bank_size);
             break;
         // Switchable 0, fixed 1
         case 3:
@@ -215,7 +221,7 @@ static void mapper_mmc1_cpu_write(Mapper* mapper, u16 address, u8 value) {
     // https://www.nesdev.org/wiki/MMC1#Reset
     if (get_bit(value, 7) == 1) {
         mapper->shifter = 0;
-    } else {
+    } else if (!mapper->last_cycle_was_write) {
         mapper->shifter |= get_bit(value, 0) << mapper->shift_count;
         mapper->shift_count++;
 
@@ -247,13 +253,13 @@ static void mapper_mmc1_cpu_write(Mapper* mapper, u16 address, u8 value) {
 static MappedMemory mapper_mmc1_ppu_helper(Mapper* mapper, u16 address) {
     if (address < 0x1000) {
         return (MappedMemory) {
-            .memory = slice_u8_get_ptr(mapper->chr_rom_bank0, address),
-            .writable = false,
+            .memory = slice_u8_get_ptr(mapper->chr_bank0, address),
+            .writable = mapper->chr_mem_is_writable,
         };
     } else if (address >= 0x1000 && address < 0x2000) {
         return (MappedMemory) {
-            .memory = slice_u8_get_ptr(mapper->chr_rom_bank1, address - 0x1000),
-            .writable = false,
+            .memory = slice_u8_get_ptr(mapper->chr_bank1, address - 0x1000),
+            .writable = mapper->chr_mem_is_writable,
         };
     } else if (address >= 0x2000 && address < 0x4000) {
         return mapper_util_vram(mapper, address);
@@ -272,6 +278,10 @@ static void mapper_mmc1_ppu_write(Mapper* mapper, u16 address, u8 value) {
     if (mapped.writable) {
         *mapped.memory = value;
     }
+}
+
+static void mapper_mmc1_step(Mapper* mapper, b8 read_cycle) {
+    mapper->last_cycle_was_write = !read_cycle;
 }
 
 static Mapper mapper_build(NesRom* rom) {
@@ -348,6 +358,17 @@ static Mapper mapper_build(NesRom* rom) {
     mapper.chr_rom = slice_u8_subslice(rom_data, offset, chr_rom_size);
     offset += chr_rom_size;
 
+    if (chr_rom_size > 0 && mapper.chr_ram_size == 0) {
+        mapper.chr_mem = mapper.chr_rom;
+        mapper.chr_mem_is_writable = false;
+    } else if (mapper.chr_ram_size > 0 && chr_rom_size == 0) {
+        mapper.chr_mem = slice_u8_from_parts(mapper.chr_ram, mapper.chr_ram_size);
+        mapper.chr_mem_is_writable = true;
+    } else {
+        log_fatal("MMC1 mapper can't handle both CHR-RAM and CHR-ROM banks.");
+        UNREACHABLE();
+    }
+
     // NOTE: This could be made into a hash map sort of deal
     switch (mapper.id) {
         // NROM
@@ -357,6 +378,7 @@ static Mapper mapper_build(NesRom* rom) {
                 .cpu_write = mapper_nrom_cpu_write,
                 .ppu_read  = mapper_nrom_ppu_read,
                 .ppu_write = mapper_nrom_ppu_write,
+                .step      = mapper_dummy_step,
             };
             break;
         // MMC1
@@ -366,14 +388,15 @@ static Mapper mapper_build(NesRom* rom) {
                 .cpu_write = mapper_mmc1_cpu_write,
                 .ppu_read  = mapper_mmc1_ppu_read,
                 .ppu_write = mapper_mmc1_ppu_write,
+                .step      = mapper_mmc1_step,
             };
             u32 prg_bank_size = kib(16);
             u32 chr_bank_size = kib(4);
             mapper.prg_rom_bank0 = slice_u8_subslice(mapper.prg_rom, 0, prg_bank_size);
             mapper.prg_rom_bank1 = slice_u8_subslice(mapper.prg_rom, mapper.prg_rom.size - prg_bank_size, prg_bank_size);
 
-            mapper.chr_rom_bank0 = slice_u8_subslice(mapper.chr_rom, 0, chr_bank_size);
-            mapper.chr_rom_bank1 = slice_u8_subslice(mapper.chr_rom, chr_bank_size, chr_bank_size);
+            mapper.chr_bank0 = slice_u8_subslice(mapper.chr_mem, 0, chr_bank_size);
+            mapper.chr_bank1 = slice_u8_subslice(mapper.chr_mem, chr_bank_size, chr_bank_size);
             break;
         default:
             log_fatal("Unsupported mapper: mapper %u, submapper %u", mapper.id, mapper.submapper);

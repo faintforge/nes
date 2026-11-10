@@ -33,6 +33,17 @@ struct MapperCallbacks {
 
     u8 (*ppu_read)(Mapper* mapper, u16 address);
     void (*ppu_write)(Mapper* mapper, u16 address, u8 value);
+
+    // This is needed for the MMC1 mapper, and eventually others, which have
+    // cycle specific behavior. The MMC1 mapper needs to keep track of
+    // consecutive writes which is done through this function.
+    // Make sure to run this after stepping the CPU.
+    //
+    // The reason this is a separate callback and not simply infered from the
+    // read/write callbacks is because this approach gives us the ability to
+    // bounds-check reads and writes. I want to merge the two, but for now this
+    // is what I'm going with.
+    void (*step)(Mapper* mapper, b8 read_cycle);
 };
 
 struct Mapper {
@@ -65,14 +76,17 @@ struct Mapper {
     MapperCallbacks cb;
 
     // NOTE: MMC1 specific variables
+    SliceU8 chr_mem;
+    u8 chr_mem_is_writable;
     SliceU8 prg_rom_bank0;
     SliceU8 prg_rom_bank1;
-    SliceU8 chr_rom_bank0;
-    SliceU8 chr_rom_bank1;
+    SliceU8 chr_bank0;
+    SliceU8 chr_bank1;
     u8 shifter;
     u8 shift_count;
     u8 prg_rom_bank_mode;
     u8 chr_bank_mode;
+    b8 last_cycle_was_write;
 };
 
 typedef struct NesRom NesRom;
