@@ -122,7 +122,7 @@ i32 main(void) {
     Machine* machine = malloc(sizeof(Machine));
     *machine = (Machine) {
         // .rom = load_nes_rom_from_file("nes_roms/Donkey Kong (World) (Rev 1).nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
+        .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. (World).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Tetris (USA).nes"),
         // .rom = load_nes_rom_from_file("nes_roms/Super Mario Bros. 3 (USA).nes"), // Needs mapper 4.0
         // .rom = load_nes_rom_from_file("nes_roms/Galaga - Demons of Death (USA).nes"),
@@ -145,10 +145,6 @@ i32 main(void) {
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_interrupts.nes"), // Needs unofficial opcodes
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_reset_registers.nes"),
 
-        // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/09.timing_basics.nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/10.timing_order.nes"),
-        // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/11.edge_timing.nes"),
-
         // =====================================================================
         // Passing
         // =====================================================================
@@ -165,9 +161,12 @@ i32 main(void) {
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/03.corners.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/04.flip.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/05.left_clip.nes"),
-        .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/06.right_edge.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/06.right_edge.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/07.screen_bottom.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/08.double_height.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/09.timing_basics.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/10.timing_order.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/11.edge_timing.nes"),
 
         .input = input_device_keyboard(),
     };

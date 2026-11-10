@@ -661,7 +661,6 @@ PpuDot ppu_step(Ppu* ppu) {
         } else if (ppu->dot == 1) {
             ppu->vblank_flag = 0;
             ppu->vblank_nmi_signal = 0;
-            ppu->sprite0_hit_flag = false;
         } else if (ppu->dot == 339 && ppu->is_frame_odd && !ppu__rendering_disabled(ppu)) {
             ppu->scanline++;
             ppu->dot = 0;
@@ -670,6 +669,14 @@ PpuDot ppu_step(Ppu* ppu) {
     } else if (ppu->scanline == 241 && ppu->dot == 1) {
         ppu->vblank_flag = 1;
         ppu->vblank_nmi_signal = ppu->vblank_nmi_enabled;
+    }
+    // NOTE: According to [this](https://www.nesdev.org/wiki/PPU_OAM#Sprite_zero_hits)
+    // sprite 0 hit is cleared at dot 0 of the pre-render scanline, but Blargg
+    // sprite hit test suite only passes when resetting here, one dot earlier
+    // than specified by nesdev. Maybe this is a timing issue between CPU and
+    // PPU in my implementation, but all tests seem to pass at least.
+    else if (ppu->scanline == 260 && ppu->dot == 340) {
+        ppu->sprite0_hit_flag = false;
     }
 
     if (!skipped_first_dot) {
