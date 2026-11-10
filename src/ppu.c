@@ -624,7 +624,9 @@ PpuDot ppu_step(Ppu* ppu) {
                 } else if (tile_opaque && !sprite_opaque) {
                     color = ppu_decode_color(ppu, tile_color_index);
                 } else {
-                    if (is_sprite0) {
+                    // Sprite 0 hit doesn't happen when x == 255 as described
+                    // here: https://www.nesdev.org/wiki/PPU_OAM#Sprite_0_hits
+                    if (is_sprite0 && x != 255) {
                         ppu->sprite0_hit_flag = true;
                     }
 
