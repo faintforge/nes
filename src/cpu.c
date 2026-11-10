@@ -927,6 +927,22 @@ i16 op_pull(Cpu* cpu, Op op) {
     return -1;
 }
 
+void op_nop(Cpu* cpu, Op op) {
+    if (op.addr_mode == ADDR_MODE_IMPLIED) {
+        cpu_instruction_done(cpu);
+    } else if (op.addr_mode == ADDR_MODE_IMMEDIATE) {
+        cpu_advance_pc(cpu);
+        cpu_instruction_done(cpu);
+    } else if (!cpu_is_addr_ready(cpu)) {
+        step_addressing_mode(cpu, op.addr_mode, READ);
+    } else if (cpu_is_addr_ready(cpu)) {
+        cpu_advance_pc(cpu);
+        cpu_instruction_done(cpu);
+    } else {
+        UNREACHABLE();
+    }
+}
+
 void cpu_step(Cpu* cpu) {
     // First phase of a cycle is always a memory operation.
     switch (cpu->bus_mode) {
@@ -1200,7 +1216,154 @@ void cpu_step(Cpu* cpu) {
 
         // Other
         case OP_NOP:
+            op_nop(cpu, op);
+            break;
+
+        // Illegal
+        // www.oxyron.de/html/opcodes02.html
+        case OP_SLO:
+            op_read_modify_write(cpu, op, rmw_asl);
+            if (cpu->t == 0) {
+                op_ora(cpu, NULL);
+            }
+            break;
+        case OP_RLA:
+            op_read_modify_write(cpu, op, rmw_rol);
+            if (cpu->t == 0) {
+                op_and(cpu, NULL);
+            }
+            break;
+        case OP_SRE:
+            op_read_modify_write(cpu, op, rmw_lsr);
+            if (cpu->t == 0) {
+                op_eor(cpu, NULL);
+            }
+            break;
+        case OP_RRA:
+            op_read_modify_write(cpu, op, rmw_ror);
+            if (cpu->t == 0) {
+                op_adc(cpu, NULL);
+            }
+            break;
+        case OP_SAX: {
+            u8 value = cpu->a & cpu->x;
+            op_st(cpu, op, &value);
+        } break;
+        case OP_LAX:
+            op_group_one(cpu, op, op_ld, &cpu->a);
+            if (cpu->t == 0) {
+                cpu->x = cpu->a;
+            }
+            break;
+        case OP_DCP:
+            op_read_modify_write(cpu, op, rmw_dec);
+            if (cpu->t == 0) {
+                op_cmp(cpu, &cpu->a);
+            }
+            break;
+        case OP_ISC:
+            op_read_modify_write(cpu, op, rmw_inc);
+            if (cpu->t == 0) {
+                op_sbc(cpu, NULL);
+            }
+            break;
+        case OP_ANC:
+            op_group_one(cpu, op, op_and, NULL);
+            if (cpu->t == 0) {
+                cpu_set_status_flag(cpu, CPU_FLAG_CARRY, get_bit(cpu->a, 7));
+            }
+            break;
+        case OP_ALR:
+            op_group_one(cpu, op, op_and, NULL);
+            if (cpu->t == 0) {
+                rmw_lsr(cpu, &cpu->a);
+            }
+            break;
+        case OP_ARR:
+            op_group_one(cpu, op, op_and, NULL);
+            if (cpu->t == 0) {
+                rmw_ror(cpu, &cpu->a);
+            }
+            cpu_set_zero_negative(cpu, cpu->a);
+            cpu_set_status_flag(cpu, CPU_FLAG_CARRY, get_bit(cpu->a, 6));
+            cpu_set_status_flag(cpu, CPU_FLAG_OVERFLOW, get_bit(cpu->a, 6) ^ get_bit(cpu->a, 5));
+            break;
+        case OP_XAA:
+            op_group_one(cpu, op, op_eor, NULL);
+            if (cpu->t == 0) {
+                cpu->a = cpu->x;
+            }
+            break;
+        case OP_AXS: {
+            assert(op.addr_mode == ADDR_MODE_IMMEDIATE);
+            u8 result = (cpu->a & cpu->x) - cpu->data_bus;
+
+            cpu_set_status_flag(cpu, CPU_FLAG_CARRY, (cpu->a & cpu->x) >= cpu->data_bus);
+            cpu_set_status_flag(cpu, CPU_FLAG_ZERO, result == 0);
+            cpu_set_status_flag(cpu, CPU_FLAG_NEGATIVE, get_bit(result, 7));
+
+            cpu->x = result;
+
+            cpu_advance_pc(cpu);
             cpu_instruction_done(cpu);
+        } break;
+        case OP_AHX: {
+            u8 dummy = 0;
+            op_st(cpu, op, &dummy);
+            if (cpu_is_addr_ready(cpu)) {
+                u16 h = ((cpu->address_bus - cpu->y) >> 8) + 1;
+                u16 result = h & cpu->x & cpu->a;
+                // Page boundary crossed
+                if ((cpu->address_bus - cpu->y) >> 8 != cpu->address_bus >> 8) {
+                    cpu->address_bus = (cpu->address_bus & 0xFF) | (result << 8);
+                }
+                cpu->data_bus = result;
+                cpu->bus_mode = WRITE;
+            }
+        } break;
+        case OP_SHX: {
+            u8 dummy = 0;
+            op_st(cpu, op, &dummy);
+            if (cpu_is_addr_ready(cpu)) {
+                u16 h = ((cpu->address_bus - cpu->y) >> 8) + 1;
+                u16 result = h & cpu->x;
+                // Page boundary crossed
+                if ((cpu->address_bus - cpu->y) >> 8 != cpu->address_bus >> 8) {
+                    cpu->address_bus = (cpu->address_bus & 0xFF) | (result << 8);
+                }
+                cpu->data_bus = result;
+                cpu->bus_mode = WRITE;
+            }
+        } break;
+        case OP_SHY: {
+            u8 dummy = 0;
+            op_st(cpu, op, &dummy);
+            if (cpu_is_addr_ready(cpu)) {
+                u16 h = ((cpu->address_bus - cpu->y) >> 8) + 1;
+                u16 result = h & cpu->y;
+                // Page boundary crossed
+                if ((cpu->address_bus - cpu->y) >> 8 != cpu->address_bus >> 8) {
+                    cpu->address_bus = (cpu->address_bus & 0xFF) | (result << 8);
+                }
+                cpu->data_bus = result;
+                cpu->bus_mode = WRITE;
+            }
+        } break;
+        case OP_TAS: {
+            u8 dummy = 0;
+            op_st(cpu, op, &dummy);
+            if (cpu_is_addr_ready(cpu)) {
+                cpu->s = cpu->a & cpu->x;
+            }
+        } break;
+        case OP_LAS:
+            op_group_one(cpu, op, op_ld, &cpu->a);
+            if (cpu->t == 0) {
+                u8 result = cpu->s & cpu->a;
+                cpu->a = result;
+                cpu->x = result;
+                cpu->s = result;
+            }
             break;
 
         case OP__UNDEFINED:

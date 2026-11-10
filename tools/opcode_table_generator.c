@@ -239,6 +239,129 @@ static Op decode_cc2(u8 aaa, u8 bbb) {
     return OP_UNDEFINED;
 }
 
+static Op decode_illegal(u8 opcode) {
+    // https://www.oxyron.de/html/opcodes02.html
+    switch (opcode) {
+        // SLO
+        case 0x07: return (Op) {OP_SLO, ADDR_MODE_ZERO_PAGE};
+        case 0x17: return (Op) {OP_SLO, ADDR_MODE_ZERO_PAGE_X};
+        case 0x03: return (Op) {OP_SLO, ADDR_MODE_INDIRECT_X};
+        case 0x13: return (Op) {OP_SLO, ADDR_MODE_INDIRECT_Y};
+        case 0x0F: return (Op) {OP_SLO, ADDR_MODE_ABSOLUTE};
+        case 0x1F: return (Op) {OP_SLO, ADDR_MODE_ABSOLUTE_X};
+        case 0x1B: return (Op) {OP_SLO, ADDR_MODE_ABSOLUTE_Y};
+        // RLA
+        case 0x27: return (Op) {OP_RLA, ADDR_MODE_ZERO_PAGE};
+        case 0x37: return (Op) {OP_RLA, ADDR_MODE_ZERO_PAGE_X};
+        case 0x23: return (Op) {OP_RLA, ADDR_MODE_INDIRECT_X};
+        case 0x33: return (Op) {OP_RLA, ADDR_MODE_INDIRECT_Y};
+        case 0x2F: return (Op) {OP_RLA, ADDR_MODE_ABSOLUTE};
+        case 0x3F: return (Op) {OP_RLA, ADDR_MODE_ABSOLUTE_X};
+        case 0x3B: return (Op) {OP_RLA, ADDR_MODE_ABSOLUTE_Y};
+        // SRE
+        case 0x47: return (Op) {OP_SRE, ADDR_MODE_ZERO_PAGE};
+        case 0x57: return (Op) {OP_SRE, ADDR_MODE_ZERO_PAGE_X};
+        case 0x43: return (Op) {OP_SRE, ADDR_MODE_INDIRECT_X};
+        case 0x53: return (Op) {OP_SRE, ADDR_MODE_INDIRECT_Y};
+        case 0x4F: return (Op) {OP_SRE, ADDR_MODE_ABSOLUTE};
+        case 0x5F: return (Op) {OP_SRE, ADDR_MODE_ABSOLUTE_X};
+        case 0x5B: return (Op) {OP_SRE, ADDR_MODE_ABSOLUTE_Y};
+        // RRA
+        case 0x67: return (Op) {OP_RRA, ADDR_MODE_ZERO_PAGE};
+        case 0x77: return (Op) {OP_RRA, ADDR_MODE_ZERO_PAGE_X};
+        case 0x63: return (Op) {OP_RRA, ADDR_MODE_INDIRECT_X};
+        case 0x73: return (Op) {OP_RRA, ADDR_MODE_INDIRECT_Y};
+        case 0x6F: return (Op) {OP_RRA, ADDR_MODE_ABSOLUTE};
+        case 0x7F: return (Op) {OP_RRA, ADDR_MODE_ABSOLUTE_X};
+        case 0x7B: return (Op) {OP_RRA, ADDR_MODE_ABSOLUTE_Y};
+        // SAX
+        case 0x87: return (Op) {OP_SAX, ADDR_MODE_ZERO_PAGE};
+        case 0x97: return (Op) {OP_SAX, ADDR_MODE_ZERO_PAGE_Y};
+        case 0x83: return (Op) {OP_SAX, ADDR_MODE_INDIRECT_X};
+        case 0x8F: return (Op) {OP_SAX, ADDR_MODE_ABSOLUTE};
+        // LAX
+        case 0xAB: return (Op) {OP_LAX, ADDR_MODE_IMMEDIATE};
+        case 0xA7: return (Op) {OP_LAX, ADDR_MODE_ZERO_PAGE};
+        case 0xB7: return (Op) {OP_LAX, ADDR_MODE_ZERO_PAGE_Y};
+        case 0xA3: return (Op) {OP_LAX, ADDR_MODE_INDIRECT_X};
+        case 0xB3: return (Op) {OP_LAX, ADDR_MODE_INDIRECT_Y};
+        case 0xAF: return (Op) {OP_LAX, ADDR_MODE_ABSOLUTE};
+        case 0xBF: return (Op) {OP_LAX, ADDR_MODE_ABSOLUTE_Y};
+        // DCP
+        case 0xC7: return (Op) {OP_DCP, ADDR_MODE_ZERO_PAGE};
+        case 0xD7: return (Op) {OP_DCP, ADDR_MODE_ZERO_PAGE_X};
+        case 0xC3: return (Op) {OP_DCP, ADDR_MODE_INDIRECT_X};
+        case 0xD3: return (Op) {OP_DCP, ADDR_MODE_INDIRECT_Y};
+        case 0xCF: return (Op) {OP_DCP, ADDR_MODE_ABSOLUTE};
+        case 0xDF: return (Op) {OP_DCP, ADDR_MODE_ABSOLUTE_X};
+        case 0xDB: return (Op) {OP_DCP, ADDR_MODE_ABSOLUTE_Y};
+        // ISC
+        case 0xE7: return (Op) {OP_ISC, ADDR_MODE_ZERO_PAGE};
+        case 0xF7: return (Op) {OP_ISC, ADDR_MODE_ZERO_PAGE_X};
+        case 0xE3: return (Op) {OP_ISC, ADDR_MODE_INDIRECT_X};
+        case 0xF3: return (Op) {OP_ISC, ADDR_MODE_INDIRECT_Y};
+        case 0xEF: return (Op) {OP_ISC, ADDR_MODE_ABSOLUTE};
+        case 0xFF: return (Op) {OP_ISC, ADDR_MODE_ABSOLUTE_X};
+        case 0xFB: return (Op) {OP_ISC, ADDR_MODE_ABSOLUTE_Y};
+        // ANC
+        case 0x0B: return (Op) {OP_ANC, ADDR_MODE_IMMEDIATE};
+        case 0x2B: return (Op) {OP_ANC, ADDR_MODE_IMMEDIATE};
+        // ALR
+        case 0x4B: return (Op) {OP_ALR, ADDR_MODE_IMMEDIATE};
+        // ARR
+        case 0x6B: return (Op) {OP_ARR, ADDR_MODE_IMMEDIATE};
+        // XAA
+        case 0x8B: return (Op) {OP_XAA, ADDR_MODE_IMMEDIATE};
+        // AXS
+        case 0xCB: return (Op) {OP_AXS, ADDR_MODE_IMMEDIATE};
+        // SBC
+        case 0xEB: return (Op) {OP_SBC, ADDR_MODE_IMMEDIATE};
+        // AHX
+        case 0x93: return (Op) {OP_AHX, ADDR_MODE_INDIRECT_Y};
+        case 0x9F: return (Op) {OP_AHX, ADDR_MODE_ABSOLUTE_Y};
+        // SHY
+        case 0x9C: return (Op) {OP_SHY, ADDR_MODE_ABSOLUTE_X};
+        // SHX
+        case 0x9E: return (Op) {OP_SHX, ADDR_MODE_ABSOLUTE_Y};
+        // TAS
+        case 0x9B: return (Op) {OP_TAS, ADDR_MODE_ABSOLUTE_Y};
+        // LAS
+        case 0xBB: return (Op) {OP_LAS, ADDR_MODE_ABSOLUTE_Y};
+
+        // NOP
+        case 0x04: return (Op) {OP_NOP, ADDR_MODE_ZERO_PAGE};
+        case 0x0C: return (Op) {OP_NOP, ADDR_MODE_ABSOLUTE};
+        case 0x14: return (Op) {OP_NOP, ADDR_MODE_ZERO_PAGE_X};
+        case 0x1A: return (Op) {OP_NOP, ADDR_MODE_IMPLIED};
+        case 0x1C: return (Op) {OP_NOP, ADDR_MODE_ABSOLUTE_X};
+        case 0x34: return (Op) {OP_NOP, ADDR_MODE_ZERO_PAGE_X};
+        case 0x3A: return (Op) {OP_NOP, ADDR_MODE_IMPLIED};
+        case 0x3C: return (Op) {OP_NOP, ADDR_MODE_ABSOLUTE_X};
+        case 0x44: return (Op) {OP_NOP, ADDR_MODE_ZERO_PAGE};
+        case 0x54: return (Op) {OP_NOP, ADDR_MODE_ZERO_PAGE_X};
+        case 0x5A: return (Op) {OP_NOP, ADDR_MODE_IMPLIED};
+        case 0x5C: return (Op) {OP_NOP, ADDR_MODE_ABSOLUTE_X};
+        case 0x64: return (Op) {OP_NOP, ADDR_MODE_ZERO_PAGE};
+        case 0x74: return (Op) {OP_NOP, ADDR_MODE_ZERO_PAGE_X};
+        case 0x7A: return (Op) {OP_NOP, ADDR_MODE_IMPLIED};
+        case 0x7C: return (Op) {OP_NOP, ADDR_MODE_ABSOLUTE_X};
+        case 0x80: return (Op) {OP_NOP, ADDR_MODE_IMMEDIATE};
+        case 0x82: return (Op) {OP_NOP, ADDR_MODE_IMMEDIATE};
+        case 0x89: return (Op) {OP_NOP, ADDR_MODE_IMMEDIATE};
+        case 0xC2: return (Op) {OP_NOP, ADDR_MODE_IMMEDIATE};
+        case 0xD4: return (Op) {OP_NOP, ADDR_MODE_ZERO_PAGE_X};
+        case 0xDA: return (Op) {OP_NOP, ADDR_MODE_IMPLIED};
+        case 0xDC: return (Op) {OP_NOP, ADDR_MODE_ABSOLUTE_X};
+        case 0xE2: return (Op) {OP_NOP, ADDR_MODE_IMMEDIATE};
+        case 0xEA: return (Op) {OP_NOP, ADDR_MODE_IMPLIED};
+        case 0xF4: return (Op) {OP_NOP, ADDR_MODE_ZERO_PAGE_X};
+        case 0xFA: return (Op) {OP_NOP, ADDR_MODE_IMPLIED};
+        case 0xFC: return (Op) {OP_NOP, ADDR_MODE_ABSOLUTE_X};
+
+        default: return OP_UNDEFINED;
+    }
+}
+
 Op decode_opcode(u8 opcode) {
 
     // opcode structure:
@@ -267,7 +390,7 @@ Op decode_opcode(u8 opcode) {
             break;
     }
     if (result.type == OP__UNDEFINED || result.addr_mode == ADDR_MODE__UNDEFINED) {
-        result = OP_UNDEFINED;
+        result = decode_illegal(opcode);
     }
     return result;
 }

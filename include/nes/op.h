@@ -6,48 +6,95 @@
 // [Reference](https://www.nesdev.org/wiki/Instruction_reference#BRK)
 typedef u8 OpType;
 enum {
-    // Access
-    OP_LDA, OP_STA,
-    OP_LDX, OP_STX,
-    OP_LDY, OP_STY,
-    // Transfer
-    OP_TAX, OP_TXA,
-    OP_TAY, OP_TYA,
-    // Arithmetic
-    OP_ADC, OP_SBC,
-    OP_INC, OP_DEC,
-    OP_DEX, OP_INX,
-    OP_INY, OP_DEY,
-    // Shift
-    OP_ASL, OP_LSR,
-    OP_ROL, OP_ROR,
-    // Bitwise
-    OP_AND, OP_ORA,
-    OP_EOR, OP_BIT,
-    // Compare
-    OP_CMP, OP_CPX,
-    OP_CPY,
-    // Branch
-    OP_BCC, OP_BCS,
-    OP_BEQ, OP_BNE,
-    OP_BPL, OP_BMI,
-    OP_BVC, OP_BVS,
-    // Jump
-    OP_JMP, OP_JSR,
-    OP_RTS, OP_BRK,
-    OP_RTI,
-    // Stack
-    OP_PHA, OP_PLA,
-    OP_PHP, OP_PLP,
-    OP_TXS, OP_TSX,
-    // Flags
-    OP_CLC, OP_SEC,
-    OP_CLI, OP_SEI,
-    OP_CLD, OP_SED, OP_CLV,
-    OP_NOP,
+  // Access
+  OP_LDA,
+  OP_STA,
+  OP_LDX,
+  OP_STX,
+  OP_LDY,
+  OP_STY,
+  // Transfer
+  OP_TAX,
+  OP_TXA,
+  OP_TAY,
+  OP_TYA,
+  // Arithmetic
+  OP_ADC,
+  OP_SBC,
+  OP_INC,
+  OP_DEC,
+  OP_DEX,
+  OP_INX,
+  OP_INY,
+  OP_DEY,
+  // Shift
+  OP_ASL,
+  OP_LSR,
+  OP_ROL,
+  OP_ROR,
+  // Bitwise
+  OP_AND,
+  OP_ORA,
+  OP_EOR,
+  OP_BIT,
+  // Compare
+  OP_CMP,
+  OP_CPX,
+  OP_CPY,
+  // Branch
+  OP_BCC,
+  OP_BCS,
+  OP_BEQ,
+  OP_BNE,
+  OP_BPL,
+  OP_BMI,
+  OP_BVC,
+  OP_BVS,
+  // Jump
+  OP_JMP,
+  OP_JSR,
+  OP_RTS,
+  OP_BRK,
+  OP_RTI,
+  // Stack
+  OP_PHA,
+  OP_PLA,
+  OP_PHP,
+  OP_PLP,
+  OP_TXS,
+  OP_TSX,
+  // Flags
+  OP_CLC,
+  OP_SEC,
+  OP_CLI,
+  OP_SEI,
+  OP_CLD,
+  OP_SED,
+  OP_CLV,
+  OP_NOP,
 
-    OP__COUNT,
-    OP__UNDEFINED = 0xFF,
+  // Illegal
+  OP_SLO,
+  OP_RLA,
+  OP_SRE,
+  OP_RRA,
+  OP_SAX,
+  OP_LAX,
+  OP_DCP,
+  OP_ISC,
+  OP_ANC,
+  OP_ALR,
+  OP_ARR,
+  OP_XAA,
+  OP_AXS,
+  OP_AHX,
+  OP_SHY,
+  OP_SHX,
+  OP_TAS,
+  OP_LAS,
+
+  OP__COUNT,
+  OP__UNDEFINED = 0xFF,
 };
 
 // [Reference](https://www.nesdev.org/wiki/CPU_addressing_modes)
@@ -82,13 +129,17 @@ static const Op OP_UNDEFINED = {
     .addr_mode = ADDR_MODE__UNDEFINED,
 };
 
-static const char* const OP_PRETTY_STRING[OP__COUNT] = {
+static const char *const OP_PRETTY_STRING[OP__COUNT] = {
     "LDA", "STA", "LDX", "STX", "LDY", "STY", "TAX", "TXA", "TAY", "TYA",
     "ADC", "SBC", "INC", "DEC", "DEX", "INX", "INY", "DEY", "ASL", "LSR",
     "ROL", "ROR", "AND", "ORA", "EOR", "BIT", "CMP", "CPX", "CPY", "BCC",
     "BCS", "BEQ", "BNE", "BPL", "BMI", "BVC", "BVS", "JMP", "JSR", "RTS",
     "BRK", "RTI", "PHA", "PLA", "PHP", "PLP", "TXS", "TSX", "CLC", "SEC",
     "CLI", "SEI", "CLD", "SED", "CLV", "NOP",
+
+    // Illegal
+    "SLO", "RLA", "SRE", "RRA", "SAX", "LAX", "DCP", "ISC", "ANC", "ALR",
+    "ARR", "XAA", "AXS", "AHX", "SHY", "SHX", "TAS", "LAS",
 };
 
 static const char* const ADDR_MODE_PRETTY_STRING[ADDR_MODE__COUNT] = {
@@ -96,7 +147,7 @@ static const char* const ADDR_MODE_PRETTY_STRING[ADDR_MODE__COUNT] = {
     "abs,Y", "(ind)",  "(ind,X)", "(ind),Y", "rel",   "",
 };
 
-static const char* const OP_ENUM_STRING[OP__COUNT] = {
+static const char *const OP_ENUM_STRING[OP__COUNT] = {
     "OP_LDA", "OP_STA", "OP_LDX", "OP_STX", "OP_LDY", "OP_STY", "OP_TAX",
     "OP_TXA", "OP_TAY", "OP_TYA", "OP_ADC", "OP_SBC", "OP_INC", "OP_DEC",
     "OP_DEX", "OP_INX", "OP_INY", "OP_DEY", "OP_ASL", "OP_LSR", "OP_ROL",
@@ -105,6 +156,11 @@ static const char* const OP_ENUM_STRING[OP__COUNT] = {
     "OP_BVC", "OP_BVS", "OP_JMP", "OP_JSR", "OP_RTS", "OP_BRK", "OP_RTI",
     "OP_PHA", "OP_PLA", "OP_PHP", "OP_PLP", "OP_TXS", "OP_TSX", "OP_CLC",
     "OP_SEC", "OP_CLI", "OP_SEI", "OP_CLD", "OP_SED", "OP_CLV", "OP_NOP",
+
+    // Illegal
+    "OP_SLO", "OP_RLA", "OP_SRE", "OP_RRA", "OP_SAX", "OP_LAX", "OP_DCP",
+    "OP_ISC", "OP_ANC", "OP_ALR", "OP_ARR", "OP_XAA", "OP_AXS", "OP_AHX",
+    "OP_SHY", "OP_SHX", "OP_TAS", "OP_LAS",
 };
 
 static const char* const ADDR_MODE_ENUM_STRING[ADDR_MODE__COUNT] = {
