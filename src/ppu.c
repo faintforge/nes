@@ -606,10 +606,10 @@ PpuDot ppu_step(Ppu* ppu) {
                 u8 tile_color_index = tile_palette_entry + tile_palette*4;
                 tile_color_index = ppu->palette_indices[tile_color_index];
 
-                if (!ppu->mask.background) {
+                if (!ppu->mask.background || (x >= 0 && x < 8 && !ppu->mask.left_background)) {
                     tile_palette_entry = 0;
                 }
-                if (!ppu->mask.sprite) {
+                if (!ppu->mask.sprite || (x >= 0 && x < 8 && !ppu->mask.left_sprite)) {
                     sprite_palette_entry = 0;
                 }
 
