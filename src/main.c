@@ -33,7 +33,6 @@ struct Machine {
 
 u8 mem_cpu_read(MemoryBus* bus, u16 address) {
     Machine* machine = bus->ctx;
-    // log_debug("READ: "HEX_U16, address);
     if (address < 0x2000) {
         return machine->cpu_ram[address & 0x7FF];
     } else if (address >= 0x2000 && address < 0x4000) {
@@ -72,6 +71,11 @@ u8 mem_cpu_read(MemoryBus* bus, u16 address) {
 
 void mem_cpu_write(MemoryBus* bus, u16 address, u8 value) {
     Machine* machine = bus->ctx;
+    if (address == 0x4020) {
+        log_info("MMIO exit: "HEX_U8, value);
+        exit(value);
+    }
+
     if (address < 0x2000) {
         machine->cpu_ram[address & 0x7FF] = value;
     } else if (address >= 0x2000 && address < 0x4000) {
@@ -91,7 +95,7 @@ void mem_cpu_write(MemoryBus* bus, u16 address, u8 value) {
                 break;
         }
     } else if (address >= 0x4018 && address < 0x4020) {
-        log_warn("Read to "HEX_U16" which is only avilable in CPU test mode!", address);
+        log_warn("Write to "HEX_U16" which is only avilable in CPU test mode!", address);
     } else {
         machine->rom.mapper.cb.cpu_write(&machine->rom.mapper, address, value);
     }
@@ -100,13 +104,16 @@ void mem_cpu_write(MemoryBus* bus, u16 address, u8 value) {
 u8 mem_ppu_read(MemoryBus* bus, u16 address) {
     Machine* machine = bus->ctx;
     Mapper* mapper = &machine->rom.mapper;
-    return mapper->cb.ppu_read(mapper, address);
+    u8 value = mapper->cb.ppu_read(mapper, address);
+    // log_trace("PPU(read): " HEX_U16", "HEX_U8, address, value);
+    return value;
 }
 
 void mem_ppu_write(MemoryBus* bus, u16 address, u8 value) {
     Machine* machine = bus->ctx;
     Mapper* mapper = &machine->rom.mapper;
     mapper->cb.ppu_write(mapper, address, value);
+    // log_trace("PPU(write): " HEX_U16", "HEX_U8, address, value);
 }
 
 f32 timestamp(void) { return SDL_GetTicks() / 1e-3f; }
@@ -145,6 +152,8 @@ i32 main(void) {
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_interrupts.nes"), // Needs unofficial opcodes
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_reset_registers.nes"),
 
+        .rom = load_nes_rom_from_file("rom/test.nes"),
+
         // =====================================================================
         // Passing
         // =====================================================================
@@ -169,7 +178,7 @@ i32 main(void) {
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/10.timing_order.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/sprite_hit_tests_2005.10.05/11.edge_timing.nes"),
         // .rom = load_nes_rom_from_file("nes_roms/tests/cpu_dummy_writes_oam.nes"),
-        .rom = load_nes_rom_from_file("nes_roms/tests/all_instrs.nes"),
+        // .rom = load_nes_rom_from_file("nes_roms/tests/all_instrs.nes"),
 
         .input = input_device_keyboard(),
     };
@@ -229,7 +238,6 @@ i32 main(void) {
                 machine->input.update(&machine->input);
                 cpu_step(cpu);
                 machine->rom.mapper.cb.step(&machine->rom.mapper, cpu->bus_mode == READ);
-                // log_debug("%lu", cpu->cycle);
                 oam_dma_step(&machine->oam_dma, cpu, ppu);
             }
 

@@ -3,7 +3,6 @@ SRC := $(wildcard src/*.c)
 CFLAGS := -ggdb -Wall -Wextra -pedantic -Og
 IFLAGS := -Iinclude -Ilibs/glad/include
 LFLAGS := -lm -lSDL3
-
 # CFLAGS += -fsanitize=address,undefined -fno-omit-frame-pointer
 
 .DEFAULT_GOAL := all
@@ -25,7 +24,7 @@ build: tools libs/libs.o
 asm:
 	@mkdir -p tmp
 	ca65 asm/test.s -o tmp/test.o
-	ld65 tmp/test.o -C asm/config.ld -o rom/test.bin
+	ld65 tmp/test.o -m /tmp/test.map -t nes -o rom/test.nes
 	@rm -rf tmp/
 
 libs/libs.o: libs/glad/src/gl.c

@@ -948,9 +948,11 @@ void cpu_step(Cpu* cpu) {
     switch (cpu->bus_mode) {
         case READ:
             cpu->data_bus = cpu->bus.read(&cpu->bus, cpu->address_bus);
+            // log_trace("CPU(read): "HEX_U16" => "HEX_U8, cpu->address_bus, cpu->data_bus);
             break;
         case WRITE:
             cpu->bus.write(&cpu->bus, cpu->address_bus, cpu->data_bus);
+            // log_trace("CPU(write): "HEX_U16" => "HEX_U8, cpu->address_bus, cpu->data_bus);
             break;
         default:
             UNREACHABLE();
