@@ -871,7 +871,7 @@ static u8 ppu__mmio_read_data(Ppu* ppu) {
         u8 index = ppu->v & 0x1F;
         // 1100 0000 = 0xC0
         ppu->io_bus &= 0xC0;
-        ppu->io_bus |= ppu->palette_indices[index] & 0x1F;
+        ppu->io_bus |= ppu->palette_indices[index] & 0x3F;
     } else {
         ppu->io_bus = ppu->read_data_latch;
     }
