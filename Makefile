@@ -24,7 +24,7 @@ build: tools libs/libs.o
 asm:
 	@mkdir -p tmp
 	ca65 asm/test.s -o tmp/test.o
-	ld65 tmp/test.o -m /tmp/test.map -t nes -o rom/test.nes
+	ld65 tmp/test.o -t nes -o rom/test.nes
 	@rm -rf tmp/
 
 libs/libs.o: libs/glad/src/gl.c

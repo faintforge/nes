@@ -484,6 +484,13 @@ NesRom load_nes_rom_from_file(const char* filename) {
 }
 
 void print_nes_rom(NesRom rom) {
+    static const char* nt_layout_names[4] = {
+        "Screen A",
+        "Screen B",
+        "Horizontal",
+        "Vertical",
+    };
+
     log_info("ROM variation: %s", NES_ROM_VARIATION_STRING[rom.variation]);
     log_info("PRG-ROM size: %u bytes", rom.mapper.prg_rom.size);
     log_info("CHR-ROM size: %u bytes", rom.mapper.chr_rom.size);
@@ -491,7 +498,7 @@ void print_nes_rom(NesRom rom) {
     log_info("CHR-RAM size: %u bytes", rom.mapper.chr_ram_size);
     log_info("PRG-NVRAM size: %u bytes", rom.mapper.prg_nvram_size);
     log_info("CHR-NVRAM size: %u bytes", rom.mapper.chr_nvram_size);
-    log_info("Nametable layout: %s", rom.mapper.nametable_layout ? "Vertical" : "Horizontal");
+    log_info("Nametable layout: %s", nt_layout_names[rom.mapper.nametable_layout]);
     log_info("Battery: %s", rom.mapper.has_battery ? "Present" : "Not present");
     log_info("Trainer area: %s", rom.mapper.has_trainer ? "Present" : "Not present");
     log_info("Alt nametables: %s", rom.mapper.alt_nametables ? "Yes" : "No");

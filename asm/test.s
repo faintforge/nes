@@ -3,6 +3,7 @@
     .byte 2   ; 2 x 16KB PRG-ROM = 32KB (ld65 -t places the vectors at $8000 so our ROM has to be 32KB).
     .byte 0   ; 0 CHR-ROM (CHR-RAM)
     .byte $00 ; Mapper 0 - vertical arragement
+    .byte $08 ; NES 2.0 identifier
 
 .segment "VECTORS"
     .word nmi
