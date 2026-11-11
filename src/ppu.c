@@ -540,7 +540,12 @@ PpuDot ppu_step(Ppu* ppu) {
                 for (u32 i = 0; i < ppu->to_render_count; i++) {
                     SpriteOam sprite = ppu->to_render_oam[i];
                     // log_debug("%d, %d", ppu->scanline-1, sprite.y);
-                    assert(is_sprite_on_scanline(ppu, sprite, ppu->scanline-1));
+                    if (!is_sprite_on_scanline(ppu, sprite, ppu->scanline-1)) {
+                        log_fatal("Evaluated sprite not on scanline:");
+                        log_fatal("    scanline = %d", ppu->scanline);
+                        log_fatal("    sprite.y = %d", sprite.y);
+                        UNREACHABLE();
+                    }
                     if (x >= sprite.x && x < sprite.x+8) {
                         u32 sprite_x = x - sprite.x;
                         i32 sprite_y = ppu->scanline - sprite.y - 1;
@@ -793,7 +798,7 @@ static void ppu__mmio_write_mask(Ppu* ppu, u8 value) {
     ppu->mask = *(PpuMask*) &value;
 }
 
-static u8 ppu__mmio_read_status(Ppu* ppu) {
+static void ppu__mmio_read_status(Ppu* ppu) {
     // 1110 0000 = $E0
     ppu->io_bus &= ~0xE0;
     ppu->io_bus |= ppu->sprite_overflow_flag << 5;
@@ -804,14 +809,13 @@ static u8 ppu__mmio_read_status(Ppu* ppu) {
     ppu->vblank_flag = 0;
 
     ppu->io_bus_last_write = ppu->timestamp_cb();
-    return ppu->io_bus;
 }
 
 static void ppu__mmio_write_oam_address(Ppu* ppu, u8 value) {
     ppu->oam_addr = value;
 }
 
-static u8 ppu__mmio_read_oam_data(Ppu* ppu) {
+static void ppu__mmio_read_oam_data(Ppu* ppu) {
     u8* oam_memory = (u8*) ppu->primary_oam;
     ppu->io_bus = oam_memory[ppu->oam_addr];
     ppu->io_bus_last_write = ppu->timestamp_cb();
@@ -819,7 +823,6 @@ static u8 ppu__mmio_read_oam_data(Ppu* ppu) {
     if ((ppu->oam_addr & 0x3) == 2) {
         ppu->io_bus &= 0xE3;
     }
-    return ppu->io_bus;
 }
 
 static void ppu__mmio_write_oam_data(Ppu* ppu, u8 value) {
@@ -865,7 +868,7 @@ static void ppu__mmio_write_address(Ppu* ppu, u8 value) {
     ppu->w = !ppu->w;
 }
 
-static u8 ppu__mmio_read_data(Ppu* ppu) {
+static void ppu__mmio_read_data(Ppu* ppu) {
     // if (ppu->v >= 0x3F00 && ppu->v < 0x3F20) {
     if (ppu->v >= 0x3F00 && ppu->v < 0x4000) {
         u8 index = ppu->v & 0x1F;
@@ -897,7 +900,6 @@ static u8 ppu__mmio_read_data(Ppu* ppu) {
             UNREACHABLE();
     }
     ppu->v &= 0x7FFF;
-    return ppu->io_bus;
 }
 
 static void ppu__mmio_write_data(Ppu* ppu, u8 value) {
