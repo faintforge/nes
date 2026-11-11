@@ -869,9 +869,17 @@ static u8 ppu__mmio_read_data(Ppu* ppu) {
     // if (ppu->v >= 0x3F00 && ppu->v < 0x3F20) {
     if (ppu->v >= 0x3F00 && ppu->v < 0x4000) {
         u8 index = ppu->v & 0x1F;
+
+        // Bottom 6-bits
+        u8 color_mask = 0x3F;
+        if (ppu->mask.grayscale) {
+            // Chop bottom 4 bits
+            color_mask &= 0x30;
+        }
+
         // 1100 0000 = 0xC0
         ppu->io_bus &= 0xC0;
-        ppu->io_bus |= ppu->palette_indices[index] & 0x3F;
+        ppu->io_bus |= ppu->palette_indices[index] & color_mask;
     } else {
         ppu->io_bus = ppu->read_data_latch;
     }
